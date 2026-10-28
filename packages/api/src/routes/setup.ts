@@ -238,7 +238,7 @@ routes.post("/oauth/start", (c) =>
         "Optional OAuth is not configured. Use an API token.",
       );
     const statusResponse = await fetch(origin + "/status", {
-      redirect: "error",
+      redirect: "manual",
       signal: AbortSignal.timeout(10000),
     });
     const service = await boundedJSON<{
@@ -312,7 +312,7 @@ routes.post("/oauth/finish", (c) =>
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ verifier: p.verifier, code: body.code }),
-      redirect: "error",
+      redirect: "manual",
       signal: AbortSignal.timeout(15000),
     });
     if (!res.ok)

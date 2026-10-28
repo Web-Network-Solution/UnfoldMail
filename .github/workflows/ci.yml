@@ -14,6 +14,7 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      - run: node deployment/check-setup-runtime.mjs
       - run: npm run db:migrate
       - run: npm run build
       - run: npx wrangler deploy --dry-run --config wrangler.jsonc

@@ -732,3 +732,53 @@ it("refuses an old or unavailable OAuth broker before saving pending authorizati
   ).toBeNull();
   f.sqlite.close();
 });
+
+describe("Workers fetch receiver", () => {
+  it.each(["default", "injected"])(
+    "calls the %s transport without a class receiver",
+    async (mode) => {
+      const transport = vi.fn(function (
+        this: unknown,
+        input: RequestInfo | URL,
+        init?: RequestInit,
+      ) {
+        // Mirror the receiver requirement enforced by workerd, which Node fetch lacks.
+        if (this !== undefined && this !== globalThis)
+          throw new TypeError("Illegal invocation");
+        expect(String(input)).toBe(
+          "https://api.cloudflare.com/client/v4/zones?per_page=50&page=1",
+        );
+        expect(init?.redirect).toBe("manual");
+        expect(init?.headers).toMatchObject({
+          Authorization: "Bearer " + token,
+        });
+        return Promise.resolve(
+          Response.json({ success: true, result: [{ id: zoneId }] }),
+        );
+      });
+      vi.stubGlobal("fetch", transport);
+      const client =
+        mode === "default"
+          ? new CloudflareSetup(token)
+          : new CloudflareSetup(token, transport as typeof fetch);
+      await expect(client.list("/zones")).resolves.toEqual([{ id: zoneId }]);
+      expect(transport).toHaveBeenCalledTimes(1);
+    },
+  );
+});
+
+it("refuses a Cloudflare API redirect without following it or releasing the credential", async () => {
+  const transport = vi.fn(
+    async (_input: RequestInfo | URL, init?: RequestInit) => {
+      expect(init?.redirect).toBe("manual");
+      return new Response(null, {
+        status: 302,
+        headers: { Location: "https://other.example/" },
+      });
+    },
+  );
+  await expect(
+    new CloudflareSetup(token, transport as typeof fetch).list("/zones"),
+  ).rejects.toThrow("could not complete");
+  expect(transport).toHaveBeenCalledTimes(1);
+});

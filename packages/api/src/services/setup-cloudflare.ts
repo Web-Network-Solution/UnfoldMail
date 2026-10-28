@@ -62,7 +62,10 @@ export class CloudflareSetup {
       throw new SetupError("Setup check timed out. Retry.", 504);
     let response: Response;
     try {
-      response = await this.transport(
+      // Native Workers fetch rejects a class instance as its receiver.
+      // Invoke the injected transport as a standalone function.
+      const transport = this.transport;
+      response = await transport(
         "https://api.cloudflare.com/client/v4" + path,
         {
           method,
@@ -71,7 +74,7 @@ export class CloudflareSetup {
             "Content-Type": "application/json",
           },
           body: body === undefined ? undefined : JSON.stringify(body),
-          redirect: "error",
+          redirect: "manual",
           signal: AbortSignal.timeout(
             Math.max(1, Math.min(15000, this.deadline - Date.now())),
           ),
@@ -243,7 +246,7 @@ export async function inspectSetup(
         "." +
         sub.subdomain +
         ".workers.dev/api/setup/identity",
-      { redirect: "error", signal: AbortSignal.timeout(10000) },
+      { redirect: "manual", signal: AbortSignal.timeout(10000) },
     );
     if (!res.ok) throw Error();
     remote = await boundedJSON(res);
@@ -546,7 +549,7 @@ async function verifyDNS(cf: CloudflareSetup, plan: Plan) {
             new URLSearchParams({ name, type }),
           {
             headers: { Accept: "application/dns-json" },
-            redirect: "error",
+            redirect: "manual",
             signal: AbortSignal.timeout(8000),
           },
         );
@@ -682,7 +685,7 @@ export async function performSetupStep(
         try {
           const res = await fetch(
             "https://" + plan.target.webHostname + "/api/setup/identity",
-            { redirect: "error", signal: AbortSignal.timeout(8000) },
+            { redirect: "manual", signal: AbortSignal.timeout(8000) },
           );
           if (
             !res.ok ||

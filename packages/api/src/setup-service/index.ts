@@ -192,7 +192,7 @@ broker.get("/callback", async (c) => {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: params.toString(),
-    redirect: "error",
+    redirect: "manual",
     signal: AbortSignal.timeout(15000),
   });
   if (!res.ok) {
