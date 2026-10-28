@@ -1,0 +1,2 @@
+# Generate a unique installation secret, at least 32 characters. Never commit the actual value.
+BOOTSTRAP_SECRET=

@@ -1,0 +1,756 @@
+/* ══════════════════════════════════════════════════════════════════
+   Components added while fixing the audit findings.
+   Kept in a second file so the original design tokens and base styles
+   in index.css stay untouched.
+   ══════════════════════════════════════════════════════════════════ */
+
+/* ─── App shell ─────────────────────────────────────────────────── */
+
+.app-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  background: var(--color-bg-primary);
+}
+
+.btn-block {
+  width: 100%;
+  justify-content: center;
+  padding: var(--space-3);
+}
+
+.btn-action {
+  padding: var(--space-4) var(--space-6);
+}
+
+.page-subtitle {
+  color: var(--color-text-tertiary);
+  margin-top: var(--space-1);
+  font-size: var(--font-size-sm);
+}
+
+.field-hint {
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-xs);
+  margin-top: var(--space-1);
+}
+
+/* ─── Sidebar ───────────────────────────────────────────────────── */
+
+.sidebar-footer {
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.sidebar-link {
+  justify-content: flex-start;
+  gap: var(--space-2);
+}
+
+.sidebar-user {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  padding: var(--space-2) var(--space-2) 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.folder-section-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.folder-add {
+  background: none;
+  border: none;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+}
+
+.folder-add:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+
+.folder-add-form {
+  padding: 0 var(--space-3) var(--space-2);
+}
+
+.folder-add-form .form-input {
+  font-size: var(--font-size-sm);
+  padding: var(--space-2);
+}
+
+.folder-item {
+  position: relative;
+}
+
+.folder-delete {
+  background: none;
+  border: none;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  opacity: 0;
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  transition: opacity var(--transition-fast);
+}
+
+.folder-item:hover .folder-delete {
+  opacity: 1;
+}
+
+.folder-delete:hover {
+  color: var(--color-danger);
+  background: var(--color-danger-subtle, rgba(239, 68, 68, 0.15));
+}
+
+/* ─── Mail panes ────────────────────────────────────────────────── */
+
+.mail-panes {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.list-pane {
+  width: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.list-pane.narrow {
+  width: 380px;
+  min-width: 380px;
+  border-right: 1px solid var(--color-border);
+}
+
+.detail-pane {
+  flex: 1;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.email-list-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.email-list-scroll {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.email-list-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.email-list-count {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+}
+
+/* ─── View toggle ───────────────────────────────────────────────── */
+
+.view-toggle {
+  display: inline-flex;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.view-toggle button {
+  background: none;
+  border: none;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  padding: 4px 10px;
+  transition: background var(--transition-fast);
+}
+
+.view-toggle button:hover {
+  background: var(--color-surface-hover);
+}
+
+.view-toggle button.active {
+  background: var(--color-accent-subtle);
+  color: var(--color-accent);
+}
+
+/* ─── Pagination ────────────────────────────────────────────────── */
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
+}
+
+.pagination-info {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+}
+
+/* ─── Email list extras ─────────────────────────────────────────── */
+
+.star-indicator {
+  color: var(--color-warning);
+  display: inline-flex;
+  align-items: center;
+}
+
+.thread-count {
+  color: var(--color-text-tertiary);
+  font-weight: 400;
+}
+
+/* ─── Email body sandbox ────────────────────────────────────────── */
+
+.email-body-frame {
+  width: 100%;
+  /* Fixed height with internal scrolling. Auto-sizing would require running
+     script inside the frame, and the frame deliberately cannot run script. */
+  height: 60vh;
+  min-height: 280px;
+  border: none;
+  display: block;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  /* The message document always declares color-scheme: light, so in dark theme the
+     schemes differ on purpose and the frame gets an opaque light canvas (Gmail-style). */
+}
+
+/* A message inside a thread gets a shorter frame — several are stacked. */
+.thread-message .email-body-frame {
+  height: 50vh;
+  min-height: 240px;
+}
+
+/* The signature preview is a few lines, not a whole message. */
+.signature-preview .email-body-frame {
+  height: 120px;
+  min-height: 0;
+}
+
+/* Offered only when a received message references remote content. */
+.remote-images-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.remote-images-bar span {
+  flex: 1 1 16rem;
+}
+
+.email-attachments-label {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-3);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.move-select {
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+/* ─── Thread view ───────────────────────────────────────────────── */
+
+.thread-messages {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.thread-message {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: var(--color-surface);
+}
+
+.thread-message.open {
+  border-color: var(--color-border-hover);
+}
+
+.thread-message-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  cursor: pointer;
+}
+
+.thread-message-header:hover {
+  background: var(--color-surface-hover);
+}
+
+.thread-message.collapsed .email-snippet {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.thread-message .email-body {
+  padding: 0 var(--space-4) var(--space-4);
+}
+
+.thread-message-count {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+}
+
+.unread-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: var(--color-accent);
+}
+
+/* ─── Compose ───────────────────────────────────────────────────── */
+
+.compose-attachments {
+  padding: var(--space-2) var(--space-4);
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.attachment-remove {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--color-text-tertiary);
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+}
+
+.attachment-remove:hover {
+  color: var(--color-danger);
+}
+
+.attachment-chip.attachment-failed {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}
+
+.attachment-chip.attachment-upload {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  gap: 6px 8px;
+  width: 100%;
+  cursor: default;
+}
+.attachment-upload .attachment-filename { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.attachment-upload progress { grid-column: 1 / -1; width: 100%; height: 6px; accent-color: var(--color-accent); }
+.attachment-upload .upload-details { grid-column: 1 / -1; color: var(--color-text-secondary); font-size: 12px; }
+.attachment-upload .upload-controls { grid-column: 1 / -1; display: flex; gap: 8px; }
+.attachment-upload .upload-error { grid-column: 1 / -1; color: var(--color-danger); white-space: normal; }
+.upload-session-hint { margin: 0; padding: 4px 16px; color: var(--color-text-secondary); font-size: 12px; }
+
+/* ─── Settings ──────────────────────────────────────────────────── */
+
+.forwarding-settings { display: grid; gap: var(--space-5); margin-top: var(--space-5); }
+.forwarding-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); margin-bottom: var(--space-4); }
+.forwarding-heading h2 { margin-bottom: var(--space-2); }
+.forwarding-inline { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); margin: var(--space-3) 0; }
+.forwarding-inline .form-input { flex: 1; min-width: 180px; }
+.forwarding-addresses { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-4); }
+.forwarding-address { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); overflow-wrap: anywhere; }
+.forwarding-address button { color: var(--color-text-secondary); background: none; border: none; cursor: pointer; font: inherit; font-size: 12px; }
+.forwarding-badge { display: inline-block; margin-left: var(--space-2); padding: 3px 8px; border: 1px solid var(--color-border); border-radius: 20px; font-size: 11px; font-weight: 500; white-space: nowrap; color: var(--color-text-secondary); }
+.forwarding-rules { padding-left: var(--space-5); margin: var(--space-4) 0; }
+.forwarding-rules > li { padding: var(--space-4) 0; border-bottom: 1px solid var(--color-border); }
+.forwarding-rule-buttons { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-2); }
+.forwarding-editor { margin-top: var(--space-4); padding: var(--space-5); border: 1px solid var(--color-border); border-radius: var(--radius-lg); display: grid; gap: var(--space-3); }
+.forwarding-editor h3 { margin: 0; }
+.forwarding-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
+.forwarding-fields .form-input { margin-top: var(--space-2); }
+.forwarding-editor fieldset { padding: var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
+.forwarding-checks { display: flex; flex-direction: column; gap: var(--space-3); margin: var(--space-3) 0; }
+.forwarding-checks label, .forwarding-check { display: flex; align-items: center; gap: var(--space-2); font-size: 13px; overflow-wrap: anywhere; }
+.forwarding-checks input, .forwarding-check input { flex-shrink: 0; }
+.forwarding-notice { padding: var(--space-3); border-left: 3px solid var(--color-warning, #b58a36); background: var(--color-bg-tertiary); font-size: 13px; overflow-wrap: anywhere; }
+.forwarding-empty { color: var(--color-text-secondary); padding: var(--space-5) 0; }
+.forwarding-preview { padding: var(--space-4); background: var(--color-bg-tertiary); border-radius: var(--radius-md); }
+.forwarding-preview li { padding: var(--space-2) 0; overflow-wrap: anywhere; }
+.forwarding-activity { list-style: none; padding: 0; }
+.forwarding-activity > li { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-4); padding: var(--space-4) 0; border-bottom: 1px solid var(--color-border); overflow-wrap: anywhere; }
+.forwarding-activity > li > div { min-width: 0; }
+.forwarding-activity p { margin: var(--space-2) 0; }
+.forwarding-activity small { color: var(--color-text-secondary); }
+.forwarding-audit { margin-top: var(--space-5); }
+.forwarding-audit pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+.forwarding-audit summary { cursor: pointer; }
+@media (max-width: 640px) {
+  .forwarding-fields { grid-template-columns: 1fr; }
+  .forwarding-heading, .forwarding-activity > li { flex-direction: column; }
+  .forwarding-editor { padding: var(--space-3); }
+}
+
+/* Settings is a standalone route, outside the admin layout's scroll container. */
+.settings-page {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  max-height: 100dvh;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.settings-grid {
+  display: grid;
+  gap: var(--space-6);
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  align-items: start;
+}
+
+.settings-card {
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.settings-card h2 {
+  margin: 0;
+}
+
+.settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.signature-editor {
+  font-family: var(--font-family-mono, monospace);
+  font-size: var(--font-size-sm);
+  resize: vertical;
+  min-height: 140px;
+}
+
+.signature-preview {
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  min-height: 60px;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  overflow-x: auto;
+}
+
+.signature-preview-label {
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-tertiary);
+  margin-bottom: var(--space-2);
+}
+
+/* ─── Admin ─────────────────────────────────────────────────────── */
+
+.role-badge {
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+}
+
+.role-badge.admin {
+  background: var(--color-accent-subtle);
+  color: var(--color-accent);
+}
+
+.role-badge.super_admin {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.cell-strong {
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+
+.cell-actions {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.tag-self {
+  margin-left: var(--space-2);
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-xs);
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-tertiary);
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.import-report {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-elevated);
+  padding: var(--space-4);
+  margin-bottom: var(--space-5);
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.import-report-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-2);
+}
+
+.import-report ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: var(--font-size-sm);
+}
+
+.import-report li {
+  padding: 2px 0;
+  color: var(--color-text-secondary);
+}
+
+.import-report li.ok {
+  color: var(--color-success);
+}
+
+.import-report li.skipped {
+  color: var(--color-warning);
+}
+
+/* ─── Responsive ────────────────────────────────────────────────── */
+
+@media (max-width: 900px) {
+  .list-pane.narrow {
+    display: none;
+  }
+
+  .detail-pane {
+    width: 100%;
+  }
+
+  .settings-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .email-list-header-actions .email-list-count {
+    display: none;
+  }
+}
+
+/* ─── Rich text editor ──────────────────────────────────────────── */
+
+.rich-editor {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.rich-editor-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  flex-wrap: wrap;
+}
+
+.rich-editor-toolbar button {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  font-size: var(--font-size-xs);
+  min-width: 28px;
+  padding: 4px 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.rich-editor-toolbar button:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+  border-color: var(--color-border);
+}
+
+.rich-editor-surface {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-4);
+  outline: none;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-base);
+  line-height: 1.6;
+  min-height: 180px;
+}
+
+.rich-editor-surface:empty::before {
+  content: attr(data-placeholder);
+  color: var(--color-text-tertiary);
+  pointer-events: none;
+}
+
+.rich-editor-surface blockquote {
+  border-left: 3px solid #dadce0;
+  color: var(--color-text-secondary);
+  margin: var(--space-3) 0 0;
+  padding: 0 0 0 var(--space-3);
+}
+
+.rich-editor-surface blockquote img {
+  max-width: 100%;
+  height: auto;
+}
+
+.rich-editor-surface .gmail_quote {
+  margin-top: var(--space-3);
+  color: var(--color-text-secondary);
+}
+
+.rich-editor-surface a {
+  color: var(--color-accent);
+}
+
+.rich-editor-surface ul,
+.rich-editor-surface ol {
+  padding-left: var(--space-5);
+}
+
+/* ─── Impersonation Banner ─────────────────────────────────────── */
+
+.impersonation-banner {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 9999;
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  color: #fff;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.3);
+  animation: slideUpBanner 0.3s ease-out;
+}
+
+@keyframes slideUpBanner {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.impersonation-banner-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+}
+
+.impersonation-banner-content strong {
+  font-weight: 700;
+}
+
+.impersonation-switch-back {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-3);
+  border: 2px solid rgba(255, 255, 255, 0.6);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+  transition: all 0.2s ease;
+}
+
+.impersonation-switch-back:hover {
+  background: rgba(255, 255, 255, 0.3);
+  border-color: #fff;
+  transform: translateY(-1px);
+}
+
+.impersonation-switch-back:active {
+  transform: translateY(0);
+}
+
+/* Switch button in admin users table */
+.btn-switch {
+  color: var(--color-warning, #f59e0b) !important;
+}
+
+.btn-switch:hover:not(:disabled) {
+  background: rgba(245, 158, 11, 0.1) !important;
+}

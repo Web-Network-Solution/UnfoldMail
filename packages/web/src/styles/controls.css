@@ -1,0 +1,87 @@
+/* Shared interactive surfaces: mail, productivity, settings and administration. */
+:root { --control-border: #626278; --control-radius: 8px; --control-height: 40px; --color-text-tertiary: #a0a0b8; color-scheme: dark; }
+[data-theme="light"] { --control-border: #85859b; --color-text-tertiary: #62627a; color-scheme: light; }
+button, input, textarea { font-family: inherit; }
+button:disabled { cursor: not-allowed; }
+:where(button, a, input, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-border-focus); outline-offset: 3px;
+}
+.ui-select-trigger.ui-select-trigger {
+  display: inline-flex; align-items: center; justify-content: space-between; gap: 12px;
+  min-height: var(--control-height); max-width: 100%; min-width: 0;
+  padding: 9px 12px; border: 1px solid var(--control-border); border-radius: var(--control-radius);
+  background: var(--color-bg-tertiary); color: var(--color-text-primary);
+  font: inherit; font-size: 13px; font-weight: 400; line-height: 1.5; text-align: left;
+  cursor: pointer; transition: border-color 150ms ease, background-color 150ms ease;
+}
+.ui-select-trigger > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ui-select-trigger:hover:not(:disabled), .ui-select-trigger[data-state="open"] { border-color: var(--color-border-focus); background: var(--color-bg-hover); }
+.ui-select-trigger.ui-select-trigger:focus-visible, .btn:focus-visible, .btn-icon-action:focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: 3px; }
+.ui-select-trigger:disabled { opacity: .55; cursor: not-allowed; }
+.ui-select-trigger[aria-invalid="true"] { border-color: var(--color-danger); }
+.email-actions .ui-select-trigger.move-select { height: auto; min-width: 120px; }
+.ui-select-trigger.form-input, .event-field > .ui-select-trigger, .ai-admin label > .ui-select-trigger { width: 100%; }
+.ui-select-chevron { flex-shrink: 0; color: var(--color-text-secondary); font-size: 17px; line-height: 1; }
+.ui-select-content {
+  z-index: 10000; min-width: var(--radix-select-trigger-width); max-width: min(420px,calc(100vw - 24px));
+  max-height: min(320px,var(--radix-select-content-available-height));
+  overflow: hidden; border: 1px solid var(--control-border); border-radius: 10px;
+  background: var(--color-bg-elevated); color: var(--color-text-primary);
+  box-shadow: 0 12px 36px #0004; font-family: var(--font-family); font-size: 13px; line-height: 1.5;
+  animation: control-appear 120ms ease-out;
+}
+.ui-select-viewport { padding: 5px; }
+.ui-select-option { position: relative; display: flex; align-items: center; min-height: 40px; padding: 8px 36px 8px 12px; border-radius: 6px; cursor: pointer; user-select: none; overflow-wrap: anywhere; outline: none; }
+.ui-select-option[data-highlighted] { background: var(--color-bg-hover); box-shadow: inset 0 0 0 2px var(--color-border-focus); }
+.ui-select-option[data-state="checked"] { background: var(--color-bg-active); font-weight: 600; }
+.ui-select-option[data-disabled] { opacity: .5; cursor: not-allowed; }
+.ui-select-check { position: absolute; right: 12px; }
+.ui-select-scroll { display: flex; justify-content: center; padding: 4px; background: var(--color-bg-elevated); }
+.btn.btn-icon:not(.btn-primary):not(.btn-danger) { background: transparent; color: var(--color-text-secondary); }
+.btn.btn-icon:hover:not(:disabled) { background: var(--color-bg-hover); color: var(--color-text-primary); }
+.btn { min-height: 36px; transition: background-color 150ms ease, border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease; }
+.btn:disabled { opacity: .5; transform: none; }
+.preferences-page .btn-primary { background: linear-gradient(135deg, var(--color-accent), #7c3aed); }
+.preferences-page .btn-primary:hover:not(:disabled) { background: linear-gradient(135deg, var(--color-accent), #7c3aed); box-shadow: var(--shadow-glow); }
+.admin-nav-item.active { color: var(--color-text-primary); box-shadow: inset 3px 0 var(--color-border-focus); }
+.form-input { border-color: var(--control-border); }
+.ai-admin input:not([type="checkbox"]), .ai-admin textarea, .ai-panel input:not([type="checkbox"]), .ai-panel textarea { border-color: var(--control-border); }
+input[type="checkbox"], input[type="radio"] { accent-color: var(--color-border-focus); width: 18px; height: 18px; flex-shrink: 0; cursor: pointer; vertical-align: middle; }
+input[type="checkbox"] { appearance: none; border: 1px solid var(--control-border); border-radius: 4px; background: var(--color-bg-tertiary); background-position: center; background-repeat: no-repeat; background-size: 14px; transition: background-color 150ms ease, border-color 150ms ease; }
+input[type="checkbox"]:checked { background-color: #5755cf; border-color: #5755cf; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' d='m3 8 3 3 7-7'/%3E%3C/svg%3E"); }
+input[type="checkbox"]:indeterminate { background-color: #5755cf; background-image: linear-gradient(white,white); background-size: 10px 2px; }
+input[type="checkbox"]:disabled, input[type="radio"]:disabled { cursor: not-allowed; }
+.ai-panel .ai-panel-body { line-height: 1.6; }
+.ai-panel-body > label, .ai-panel-body > p { margin-bottom: 16px; }
+.ai-panel-body > form > label, .ai-panel-body > form > p { margin-bottom: 16px; }
+.ai-employee-list .ai-toggle > span { min-width: 0; overflow-wrap: anywhere; }
+.ai-admin .settings-card > p { margin: 12px 0; }
+.ai-admin .settings-card > label + input { margin-top: 12px; }
+.ai-panel p { font-weight: 400; }
+.ai-panel header > div { min-width: 0; overflow-wrap: anywhere; }
+.ai-panel .ai-chat-input .ai-actions { align-items: flex-end; }
+.ai-chat-input .ui-select-trigger { min-width: 150px; }
+.ai-writing-toolbar { padding: 12px 16px; margin: 0; border-bottom: 1px solid var(--color-border); background: var(--color-bg-secondary); }
+.ai-writing-toolbar .ui-select-trigger { flex: 1 1 210px; }
+.ai-writing-toolbar > .btn { flex-shrink: 0; }
+.ai-markdown :is(p, ul, ol, pre, table, blockquote) { margin: 0 0 12px; }
+.ai-markdown :is(ul, ol) { padding-left: 24px; }
+.ai-markdown :is(h1, h2, h3, h4) { font-size: 16px; margin: 16px 0 8px; }
+.ai-admin .ai-toggle, .ai-panel .ai-toggle { align-items: flex-start; }
+.ai-toggle input { margin-top: 3px; }
+.profile-popover, .recipient-options { border-color: var(--control-border); border-radius: 10px; background: var(--color-bg-elevated); box-shadow: 0 12px 36px #0004; animation: control-appear 120ms ease-out; }
+.profile-popover-item, .recipient-options button { min-height: 40px; transition: background-color 150ms ease; }
+.recipient-options { min-width: min(220px,100%); }
+.recipient-options :is(strong,span) { overflow-wrap: anywhere; max-width: 100%; }
+.recipient-options button[aria-selected="true"] { background: var(--color-bg-active); outline: 2px solid var(--color-border-focus); outline-offset: -2px; }
+.event-editor-dialog .recipient-input, .productivity-form .recipient-input { border: 1px solid var(--control-border); border-radius: var(--control-radius); background: var(--color-bg-tertiary); }
+.event-editor-dialog .recipient-input input { padding: 10px 12px; }
+.search-result-item { display: block; width: 100%; text-align: left; color: var(--color-text-primary); background: transparent; border: 0; font: inherit; }
+.search-result-item:hover, .search-result-item:focus-visible { background: var(--color-bg-hover); }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+@supports (height: 100dvh) { #root, .app-layout { height: 100dvh; } }
+@media (forced-colors: active) { input[type="checkbox"] { appearance: auto; } .ui-select-option[data-highlighted] { outline: 2px solid Highlight; } }
+@keyframes control-appear { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: translateY(0); } }
+@media (pointer: coarse) { .btn, .btn-icon-action, .ui-select-trigger.ui-select-trigger, .ui-select-option { min-height: 44px; } .btn-icon, .btn-icon-action { min-width: 44px; } }
+@media (max-width: 600px) { .ai-writing-toolbar { padding: 12px; } .ai-writing-toolbar .ui-select-trigger { flex-basis: 100%; width: 100%; } .ai-tabs button { min-height: 44px; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; } }

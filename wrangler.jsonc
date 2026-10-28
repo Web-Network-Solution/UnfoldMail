@@ -1,0 +1,130 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "unfoldmail",
+  "main": "packages/api/src/index.ts",
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+  "assets": {
+    "directory": "packages/web/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": [
+      "/api/*"
+    ]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "unfoldmail-db",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "deployment/migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "EMAIL_BUCKET",
+      "bucket_name": "unfoldmail-storage"
+    }
+  ],
+  "queues": {
+    "producers": [
+      {
+        "queue": "unfoldmail-outbound",
+        "binding": "OUTBOUND_QUEUE"
+      },
+      {
+        "queue": "unfoldmail-inbound",
+        "binding": "EMAIL_QUEUE"
+      },
+      {
+        "queue": "unfoldmail-inbound-dlq",
+        "binding": "INBOUND_DLQ"
+      },
+      {
+        "queue": "unfoldmail-outbound-dlq",
+        "binding": "OUTBOUND_DLQ"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "unfoldmail-outbound",
+        "max_batch_size": 10,
+        "max_batch_timeout": 1,
+        "max_concurrency": 5,
+        "max_retries": 3,
+        "dead_letter_queue": "unfoldmail-outbound-dlq"
+      },
+      {
+        "queue": "unfoldmail-inbound",
+        "max_batch_size": 10,
+        "max_batch_timeout": 5,
+        "max_concurrency": 5,
+        "max_retries": 3,
+        "dead_letter_queue": "unfoldmail-inbound-dlq"
+      }
+    ]
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "MAILBOXES",
+        "class_name": "MailboxDO"
+      },
+      {
+        "name": "AI_CONTROL",
+        "class_name": "AIControlDO"
+      },
+      {
+        "name": "AI_ASSISTANTS",
+        "class_name": "AIAssistantDO"
+      },
+      {
+        "name": "WEBSOCKET_HUB",
+        "class_name": "WebSocketHub"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "WebSocketHub"
+      ]
+    },
+    {
+      "tag": "v2-mailbox-storage",
+      "new_sqlite_classes": [
+        "MailboxDO"
+      ]
+    },
+    {
+      "tag": "v3-ai-assistants",
+      "new_sqlite_classes": [
+        "AIControlDO",
+        "AIAssistantDO"
+      ]
+    }
+  ],
+  "send_email": [
+    {
+      "name": "SEND_EMAIL"
+    }
+  ],
+  "triggers": {
+    "crons": [
+      "* * * * *",
+      "*/15 * * * *"
+    ]
+  },
+  "vars": {
+    "EMAIL_DOMAIN": "",
+    "APP_URL": "",
+    "ENVIRONMENT": "production"
+  }
+}

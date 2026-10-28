@@ -1,0 +1,22 @@
+{
+  "$comment": "Tests run under Node (vitest) but import Worker source, so both type sets are needed.",
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "..",
+    "types": [
+      "node",
+      "@cloudflare/workers-types"
+    ],
+    "lib": [
+      "ES2022"
+    ],
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false,
+    "skipLibCheck": true
+  },
+  "include": [
+    "test/**/*",
+    "src/**/*"
+  ]
+}

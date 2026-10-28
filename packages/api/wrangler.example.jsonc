@@ -1,0 +1,3 @@
+// Deployment configuration lives at ../../wrangler.jsonc.
+// Run npm run deploy from the repository root.
+{}
