@@ -100,12 +100,14 @@ methods use the same review and provisioning steps. The optional service briefly
 holds an encrypted OAuth token for a one-time handoff; it retains no refresh token.
 Expired OAuth connections require authorization again.
 
-Web Network Solutions' intended service address is
-`https://unfoldmail-setup.webnetworksolution.in`. The service implementation and
-[publisher deployment instructions](deployment/oauth/README.md) are included.
-The public OAuth client must be registered and the service deployed before this
-address can be enabled in customer installations. It is not a dependency of
-API-token setup or normal mail operations.
+You do not need to register an OAuth application when using **Paste API token**.
+If you prefer OAuth, you can either use a working setup service you trust or
+[host your own OAuth setup service](deployment/oauth/README.md) with your own
+Cloudflare OAuth client, domain, database, and secrets. Self-hosting does not
+require a Web Network Solutions account or service. Registering an OAuth client
+is required only for whoever operates that optional service.
+
+OAuth is not a dependency of API-token setup or normal mail operations.
 
 A hostname added by the wizard is admitted to the browser-origin allowlist after
 successful attachment. Existing `APP_URL` remains the canonical address used in

@@ -3,8 +3,8 @@
   "main": "../../packages/api/src/setup-service/index.ts",
   "compatibility_date": "2026-10-01",
   "workers_dev": false,
-  "routes": [{"pattern": "unfoldmail-setup.webnetworksolution.in", "custom_domain": true}],
-  "vars": {"BROKER_ORIGIN": "https://unfoldmail-setup.webnetworksolution.in", "OAUTH_CLIENT_ID": "", "OAUTH_SCOPES": ""},
+  "routes": [{"pattern": "setup.example.com", "custom_domain": true}],
+  "vars": {"BROKER_ORIGIN": "https://setup.example.com", "OAUTH_CLIENT_ID": "", "OAUTH_SCOPES": ""},
   "d1_databases": [{"binding": "BROKER_DB", "database_name": "unfoldmail-setup", "database_id": "REPLACE_WITH_BROKER_DATABASE_ID", "migrations_dir": "./migrations"}],
   "triggers": {"crons": ["*/5 * * * *"]},
   "observability": {"enabled": false}

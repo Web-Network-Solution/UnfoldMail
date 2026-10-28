@@ -1,15 +1,25 @@
 # Optional UnfoldMail OAuth setup service
 
-This service is optional. Customer installations use **Paste API token** by default.
-Do not configure the OAuth URL in customer installations until a real OAuth client
-is registered and the service has passed an end-to-end authorization test.
+This guide is for users who choose to host their own OAuth setup service.
+**Paste API token** is the default method and requires none of these steps.
+If you use an existing setup service, its operator handles OAuth registration;
+you only configure its URL and approve access in Cloudflare.
 
-## Publisher setup (Web Network Solutions)
+You can run this service entirely in your own Cloudflare account, using your own
+OAuth client and domain. It does not depend on Web Network Solutions infrastructure.
+Do not enable its URL in UnfoldMail until authorization has been tested successfully.
 
-1. Register a Cloudflare OAuth client under your firm's account:
+## Self-host your OAuth service
+
+The examples below use `setup.example.com`. Replace it with a hostname you own,
+separate from your webmail hostname. Run the commands from the repository root.
+
+1. In Cloudflare, open **Manage Account > OAuth clients > Create client**.
+   You need Super Administrator, Administrator, or OAuth Client Write access.
+   Register the client under your own account:
    - Name: UnfoldMail Setup
-   - Client URL: `https://unfoldmail-setup.webnetworksolution.in`
-   - Redirect URL: `https://unfoldmail-setup.webnetworksolution.in/callback`
+   - Client URL: `https://setup.example.com`
+   - Redirect URL: `https://setup.example.com/callback`
    - Grant: `authorization_code`; response: `code`.
    - Authentication: `client_secret_post` (recommended for this server service),
      or `none` with PKCE. S256 PKCE is used in both cases.
@@ -17,8 +27,10 @@ is registered and the service has passed an end-to-end authorization test.
      Email Routing Rules Write, Email Sending Write, and Workers Scripts Write.
      Obtain the actual scope values from Cloudflare's client registration screen
      or `/client/v4/oauth/scopes`; do not invent scope identifiers.
-2. Supply the required logo and client details, verify domain ownership, test the
-   private client, then promote it to public for customers outside your account.
+2. Keep the client **private** if only members of your Cloudflare account will
+   authorize it. If you intend to serve users outside that account, supply the
+   required logo and client details, verify domain ownership, test the private
+   client, then promote it to **public**.
    [Cloudflare client registration](https://developers.cloudflare.com/fundamentals/oauth/create-an-oauth-client/)
    documents these requirements. Public visibility cannot be reverted to private.
 3. Create an isolated broker database from the repository root:
@@ -29,7 +41,11 @@ is registered and the service has passed an end-to-end authorization test.
 
    Put its ID in `deployment/oauth/wrangler.jsonc`. This database must never be a
    customer mail database. Set `OAUTH_CLIENT_ID` and space-separated `OAUTH_SCOPES`
-   to the registered values. The configured hostname must be in your Cloudflare account.
+   to the registered values. Update both `routes[0].pattern` to your hostname
+   (for example `setup.example.com`) and `vars.BROKER_ORIGIN` to its exact HTTPS
+   origin (for example `https://setup.example.com`, without a trailing slash).
+   The registered redirect URL must be that origin followed by `/callback`.
+   The hostname must belong to a zone in your Cloudflare account.
 4. Set the encryption secret, and the client secret if using `client_secret_post`:
 
    ```sh
@@ -51,7 +67,7 @@ is registered and the service has passed an end-to-end authorization test.
    installation. This status only verifies required configuration, not the client
    registration or Cloudflare permissions.
 7. In that installation, set the Worker variable `SETUP_OAUTH_BROKER_URL` to
-   `https://unfoldmail-setup.webnetworksolution.in` and preserve it in its deployment
+   `https://setup.example.com` and preserve it in its deployment
    configuration. The wizard now offers OAuth under the optional-method section.
 
 ## Flow and retention
