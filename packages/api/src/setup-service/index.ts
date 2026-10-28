@@ -7,7 +7,11 @@ import {
   sealSetup,
   openSetup,
 } from "../services/setup-crypto";
-import { boundedJSON } from "../services/setup-cloudflare";
+import {
+  CloudflareSetup,
+  type Zone,
+  boundedJSON,
+} from "../services/setup-cloudflare";
 export interface BrokerEnv {
   BROKER_DB: D1Database;
   BROKER_ORIGIN: string;
@@ -17,6 +21,8 @@ export interface BrokerEnv {
   OAUTH_SCOPES: string;
 }
 type Flow = {
+  installation: string;
+  email_domain: string;
   state: string;
   challenge: string;
   verifier: string;
@@ -59,7 +65,9 @@ broker.get("/", (c) =>
     '<!doctype html><html lang="en"><meta name="viewport" content="width=device-width,initial-scale=1"><title>UnfoldMail Setup</title><body style="font:18px system-ui;max-width:40rem;margin:4rem auto;padding:1rem"><h1>UnfoldMail Setup</h1><p>An optional Cloudflare authorization service from <a href="https://webnetworksolution.com">Web Network Solutions</a>.</p><p>Start from Email setup in your own UnfoldMail installation. Paste API token is the primary method and does not send your token to this service.</p><p>If you choose OAuth, this service temporarily stores an encrypted authorization credential. Only your initiating installation can retrieve it, once. Unclaimed credentials expire within five minutes and are removed by scheduled cleanup. No refresh token is retained.</p><p><a href="https://github.com/Web-Network-Solution/UnfoldMail/tree/main/deployment/oauth">Source code and deployment instructions</a></p></body></html>',
   ),
 );
-broker.get("/status", (c) => c.json({ available: configured(c.env) }));
+broker.get("/status", (c) =>
+  c.json({ available: configured(c.env), protocolVersion: 2 }),
+);
 broker.get("/connect", async (c) => {
   if (!configured(c.env))
     return c.text(
@@ -71,6 +79,24 @@ broker.get("/connect", async (c) => {
   const challenge = c.req.query("challenge") || "";
   if (!/^[A-Za-z0-9_-]{43}$/.test(challenge))
     return c.text("Invalid connection request.", 400);
+  const installation = c.req.query("installation") || "";
+  const domain = c.req.query("domain") || "";
+  try {
+    const u = new URL(installation);
+    if (
+      u.origin !== installation ||
+      u.protocol !== "https:" ||
+      u.port ||
+      u.username ||
+      u.password ||
+      !/^[a-z0-9.-]+$/.test(domain) ||
+      !domain.includes(".") ||
+      domain.length > 253
+    )
+      return c.text("Invalid installation address.", 400);
+  } catch {
+    return c.text("Invalid installation address.", 400);
+  }
   // Bounded per-IP starts and bounded global live rows prevent unbounded anonymous storage.
   const now = Date.now();
   const ip = await setupHash(c.req.header("CF-Connecting-IP") || "unknown");
@@ -92,13 +118,15 @@ broker.get("/connect", async (c) => {
   const state = randomSetupSecret();
   const verifier = randomSetupSecret();
   await c.env.BROKER_DB.prepare(
-    "INSERT INTO flows(state,challenge,verifier,expires) VALUES(?,?,?,?)",
+    "INSERT INTO flows(state,challenge,verifier,expires,installation,email_domain) VALUES(?,?,?,?,?,?)",
   )
     .bind(
       await setupHash(state),
       challenge,
       await sealSetup(c.env.BROKER_ENCRYPTION_KEY, verifier, "pkce"),
       now + 600000,
+      installation,
+      domain,
     )
     .run();
   setCookie(c, "__Host-unfoldmail-state", state, {
@@ -187,6 +215,57 @@ broker.get("/callback", async (c) => {
     grant.expires_in <= 0
   )
     return c.text("Cloudflare returned an unsupported credential.", 502);
+  // Resolve ownership using the authorized account, never by fetching a caller's URL.
+  const cf = new CloudflareSetup(grant.access_token);
+  const zones = await cf.list<Zone>(
+    "/zones?name=" + encodeURIComponent(flow.email_domain),
+  );
+  const zone = zones.find(
+    (z) => z.name === flow.email_domain && z.status === "active",
+  );
+  if (!zone || !/^[a-f0-9]{32}$/.test(zone.account.id))
+    return c.text(
+      "The installation domain is not in the authorized account.",
+      403,
+    );
+  const hostname = new URL(flow.installation).hostname;
+  let workerName = "";
+  if (hostname.endsWith(".workers.dev")) {
+    const sub = await cf.get<{ subdomain: string }>(
+      "/accounts/" + zone.account.id + "/workers/subdomain",
+    );
+    const suffix = "." + sub.subdomain + ".workers.dev";
+    if (hostname.endsWith(suffix))
+      workerName = hostname.slice(0, -suffix.length);
+  } else if (hostname === zone.name || hostname.endsWith("." + zone.name)) {
+    const domains = await cf.list<{
+      hostname: string;
+      service: string;
+      zone_id: string;
+    }>("/accounts/" + zone.account.id + "/workers/domains");
+    workerName =
+      domains.find((d) => d.hostname === hostname && d.zone_id === zone.id)
+        ?.service || "";
+  }
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,62}$/.test(workerName))
+    return c.text(
+      "The installation is not a Worker in the authorized account.",
+      403,
+    );
+  const settings = await cf.get<{ bindings?: { name: string }[] }>(
+    "/accounts/" +
+      zone.account.id +
+      "/workers/scripts/" +
+      encodeURIComponent(workerName) +
+      "/settings",
+  );
+  if (
+    !["DB", "MAILBOXES", "EMAIL_BUCKET"].every((name) =>
+      settings.bindings?.some((b) => b.name === name),
+    )
+  )
+    return c.text("The destination is not an UnfoldMail installation.", 403);
+  const deliveryCode = randomSetupSecret();
   const expiresAt = Date.now() + Math.min(grant.expires_in, 86400) * 1000;
   const payload = await sealSetup(
     c.env.BROKER_ENCRYPTION_KEY,
@@ -194,24 +273,33 @@ broker.get("/callback", async (c) => {
     "grant:" + flow.challenge,
   );
   await c.env.BROKER_DB.prepare(
-    "INSERT INTO grants(challenge,payload,expires) VALUES(?,?,?)",
+    "INSERT INTO grants(challenge,payload,expires,delivery_hash) VALUES(?,?,?,?)",
   )
-    .bind(flow.challenge, payload, Math.min(expiresAt, Date.now() + 300000))
+    .bind(
+      flow.challenge,
+      payload,
+      Math.min(expiresAt, Date.now() + 300000),
+      await setupHash(deliveryCode),
+    )
     .run();
-  return c.html(
-    '<!doctype html><html lang="en"><meta name="viewport" content="width=device-width,initial-scale=1"><title>UnfoldMail connection</title><body style="font:18px system-ui;max-width:40rem;margin:4rem auto;padding:1rem"><h1>Cloudflare authorization complete</h1><p>Return to the UnfoldMail setup tab and select <strong>Finish connection</strong> within five minutes.</p><p>You can close this tab. Web Network Solutions temporarily holds the encrypted credential until your installation retrieves it. Unclaimed credentials are deleted after expiration.</p></body></html>',
+  // Only the authorizing browser receives this second capability. The initiator's
+  // verifier alone cannot claim a victim's grant, even with an attacker-chosen link.
+  return c.redirect(
+    flow.installation + "/admin/setup#oauth_code=" + deliveryCode,
   );
 });
 broker.post("/claim", async (c) => {
   if (!configured(c.env)) return c.text("Unavailable", 503);
-  const { verifier } = await c.req.json();
+  const { verifier, code } = await c.req.json();
+  if (typeof code !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(code))
+    return c.text("Invalid browser handoff", 400);
   if (typeof verifier !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(verifier))
     return c.text("Invalid request", 400);
   const challenge = await setupHash(verifier);
   const row = await c.env.BROKER_DB.prepare(
-    "DELETE FROM grants WHERE challenge=? AND expires>? RETURNING payload",
+    "DELETE FROM grants WHERE challenge=? AND delivery_hash=? AND expires>? RETURNING payload",
   )
-    .bind(challenge, Date.now())
+    .bind(challenge, await setupHash(code), Date.now())
     .first<{ payload: string }>();
   if (!row)
     return c.text(

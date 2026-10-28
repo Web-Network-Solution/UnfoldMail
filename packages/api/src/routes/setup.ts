@@ -7,6 +7,7 @@ import {
   SetupError,
   boundedJSON,
   inspectSetup,
+  reconcileSetup,
   performSetupStep,
   validTarget,
   SETUP_STEPS,
@@ -26,7 +27,12 @@ import {
   withSetupLock,
   brokerOrigin,
 } from "../services/setup-state";
-type StoredPlan = { id: string; expires: number; plan: Plan };
+type StoredPlan = {
+  id: string;
+  expires: number;
+  plan: Plan;
+  attemptedStep?: string;
+};
 const routes = new Hono<{ Bindings: Env; Variables: HonoVariables }>();
 routes.use("*", async (c, next) => {
   c.header("Cache-Control", "no-store");
@@ -172,8 +178,14 @@ routes.post("/apply", (c) =>
     const stored: StoredPlan | null = row.plan ? JSON.parse(row.plan) : null;
     if (!stored || stored.id !== body.planId)
       throw new SetupError("Review the setup plan first.", 409);
+    if (!stored.plan.snapshot)
+      throw new SetupError("Review a new setup plan after upgrading.", 409);
     const progress: string[] = JSON.parse(row.progress);
-    if (!progress.length && stored.expires < Date.now())
+    if (
+      !progress.length &&
+      !stored.attemptedStep &&
+      stored.expires < Date.now()
+    )
       throw new SetupError("The plan expired. Review it again.", 409);
     if (progress.length === SETUP_STEPS.length)
       return c.json({ success: true, data: { done: true, progress } });
@@ -186,9 +198,21 @@ routes.post("/apply", (c) =>
     );
     if (fresh.blockers.length)
       throw new SetupError(fresh.blockers.join(" "), 409);
-    if (!progress.length && fresh.digest !== stored.plan.digest)
-      throw new SetupError("Domain settings changed. Review a new plan.", 409);
+    if (fresh.digest !== stored.plan.digest) {
+      if (!stored.attemptedStep)
+        throw new SetupError(
+          "Domain settings changed. Review a new plan.",
+          409,
+        );
+      await reconcileSetup(cf, stored.plan, fresh, stored.attemptedStep);
+    }
     const step = SETUP_STEPS[progress.length];
+    // Write intent before any remote mutation. A retry reconciles only this step's changes.
+    stored.plan = fresh;
+    stored.attemptedStep = step;
+    await c.env.DB.prepare("UPDATE setup_state SET plan=? WHERE id=1")
+      .bind(JSON.stringify(stored))
+      .run();
     await performSetupStep(cf, fresh, step);
     if (step === "hostname" && fresh.target.webHostname)
       await c.env.DB.prepare(
@@ -213,6 +237,25 @@ routes.post("/oauth/start", (c) =>
       throw new SetupError(
         "Optional OAuth is not configured. Use an API token.",
       );
+    const statusResponse = await fetch(origin + "/status", {
+      redirect: "error",
+      signal: AbortSignal.timeout(10000),
+    });
+    const service = await boundedJSON<{
+      available: boolean;
+      protocolVersion: number;
+    }>(statusResponse);
+    if (
+      !statusResponse.ok ||
+      !service.available ||
+      service.protocolVersion !== 2
+    )
+      throw new SetupError(
+        "Update and configure the optional OAuth service, or use an API token.",
+      );
+    const installation = new URL(c.req.url).origin;
+    if (!installation.startsWith("https://"))
+      throw new SetupError("OAuth requires HTTPS.");
     const verifier = randomSetupSecret();
     const challenge = await setupHash(verifier);
     const pending = {
@@ -232,7 +275,16 @@ routes.post("/oauth/start", (c) =>
       .run();
     return c.json({
       success: true,
-      data: { url: origin + "/connect?challenge=" + challenge },
+      data: {
+        url:
+          origin +
+          "/connect?" +
+          new URLSearchParams({
+            challenge,
+            installation,
+            domain: c.env.EMAIL_DOMAIN,
+          }).toString(),
+      },
     });
   }),
 );
@@ -251,10 +303,15 @@ routes.post("/oauth/finish", (c) =>
       p.session !== (await setupHash(getCookie(c, "session_token") || ""))
     )
       throw new SetupError("Connection expired. Start again.");
+    const body = await c.req.json();
+    if (typeof body.code !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(body.code))
+      throw new SetupError(
+        "Complete authorization in the Cloudflare tab first.",
+      );
     const res = await fetch(origin + "/claim", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ verifier: p.verifier }),
+      body: JSON.stringify({ verifier: p.verifier, code: body.code }),
       redirect: "error",
       signal: AbortSignal.timeout(15000),
     });

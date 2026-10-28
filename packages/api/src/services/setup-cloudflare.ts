@@ -137,7 +137,21 @@ export type Zone = {
   status: string;
   account: { id: string; name?: string };
 };
-type RecordRow = { id: string; type: string; name: string; content: string };
+type RecordRow = {
+  id?: string;
+  type: string;
+  name: string;
+  content: string;
+  priority?: number;
+  proxied?: boolean;
+};
+type DomainRow = { hostname: string; service: string; zone_id?: string };
+type Snapshot = {
+  records: RecordRow[];
+  catchAll: Rule;
+  rules: Rule[];
+  domains: DomainRow[];
+};
 type Rule = {
   enabled?: boolean;
   actions?: { type: string; value?: string[] }[];
@@ -154,6 +168,8 @@ export type Plan = {
   changes: string[];
   blockers: string[];
   digest: string;
+  identity: string;
+  snapshot: Snapshot;
 };
 export function validTarget(value: unknown): Target {
   const v = value as Partial<Target> | null;
@@ -251,7 +267,7 @@ export async function inspectSetup(
   } catch (e) {
     if (!(e instanceof SetupError && e.status === 404)) throw e;
   }
-  const domains = await cf.list<{ hostname: string; service: string }>(
+  const domains = await cf.list<DomainRow>(
     "/accounts/" + accountId + "/workers/domains",
   );
   const blockers: string[] = [];
@@ -323,6 +339,8 @@ export async function inspectSetup(
   return {
     target,
     domain,
+    identity,
+    snapshot: { records, catchAll, rules, domains },
     accountId,
     blockers,
     changes: [
@@ -336,13 +354,234 @@ export async function inspectSetup(
     digest: await setupHash(
       JSON.stringify({
         target,
-        records: records.sort((a, b) => a.id.localeCompare(b.id)),
+        records: records.sort((a, b) => (a.id || "").localeCompare(b.id || "")),
         catchAll,
         rules: rules.map((r) => JSON.stringify(r)).sort(),
         domains: domains.sort((a, b) => a.hostname.localeCompare(b.hostname)),
       }),
     ),
   };
+}
+function dnsName(name: string, domain: string) {
+  return name === "@" ? domain : name.toLowerCase().replace(/\.$/, "");
+}
+function dnsContent(r: RecordRow) {
+  return r.type === "TXT"
+    ? r.content.replace(/"\s*"/g, "").replace(/^"|"$/g, "")
+    : r.content.toLowerCase().replace(/\.$/, "");
+}
+function recordKey(r: RecordRow, domain: string) {
+  return JSON.stringify([
+    r.type,
+    dnsName(r.name, domain),
+    dnsContent(r),
+    r.type === "MX" ? r.priority : null,
+    !!r.proxied,
+  ]);
+}
+function sameRule(rule: Rule, worker: string) {
+  return (
+    rule.enabled === true &&
+    rule.actions?.length === 1 &&
+    rule.actions[0].type === "worker" &&
+    rule.actions[0].value?.length === 1 &&
+    rule.actions[0].value[0] === worker
+  );
+}
+export async function expectedDNS(
+  cf: CloudflareSetup,
+  plan: Plan,
+  kind: "sending" | "receiving",
+): Promise<RecordRow[]> {
+  const zone = "/zones/" + plan.target.zoneId;
+  let path = zone + "/email/routing/dns";
+  if (kind === "sending") {
+    const senders = await cf.list<{
+      name: string;
+      enabled: boolean;
+      tag: string;
+    }>(zone + "/email/sending/subdomains");
+    const sender = senders.find((s) => s.name === plan.domain && s.enabled);
+    if (!sender || !/^[a-f0-9]{32}$/.test(sender.tag))
+      throw new SetupError(
+        "Sending configuration is still pending. Retry setup.",
+      );
+    path = zone + "/email/sending/subdomains/" + sender.tag + "/dns";
+  }
+  const rows = await cf.get<RecordRow[]>(path);
+  if (
+    !Array.isArray(rows) ||
+    !rows.length ||
+    rows.length > 20 ||
+    rows.some(
+      (r) =>
+        !r ||
+        !["MX", "TXT", "CNAME"].includes(r.type) ||
+        typeof r.name !== "string" ||
+        typeof r.content !== "string" ||
+        !r.content ||
+        !(
+          dnsName(r.name, plan.domain) === plan.domain ||
+          dnsName(r.name, plan.domain).endsWith("." + plan.domain)
+        ),
+    )
+  )
+    throw new SetupError(
+      "Cloudflare DNS requirements are unavailable. Retry setup.",
+    );
+  return rows;
+}
+function hasRecords(
+  actual: RecordRow[],
+  expected: RecordRow[],
+  domain: string,
+) {
+  return expected.every((r) =>
+    actual.some((a) => recordKey(a, domain) === recordKey(r, domain)),
+  );
+}
+// A lost response must not allow unrelated configuration changes to escape review.
+export async function reconcileSetup(
+  cf: CloudflareSetup,
+  before: Plan,
+  after: Plan,
+  attempted: string,
+) {
+  if (
+    !before.snapshot ||
+    before.accountId !== after.accountId ||
+    before.domain !== after.domain ||
+    JSON.stringify(before.target) !== JSON.stringify(after.target)
+  )
+    throw new SetupError("Review a new setup plan after upgrading.", 409);
+  const a = before.snapshot,
+    b = after.snapshot;
+  const sorted = (values: string[]) => JSON.stringify(values.sort());
+  const fail = () => {
+    throw new SetupError(
+      "Domain settings changed outside setup. Review a new plan.",
+      409,
+    );
+  };
+  if (
+    sorted(a.rules.map((r) => JSON.stringify(r))) !==
+    sorted(b.rules.map((r) => JSON.stringify(r)))
+  )
+    fail();
+  if (
+    JSON.stringify(a.catchAll) !== JSON.stringify(b.catchAll) &&
+    !(attempted === "routing" && sameRule(b.catchAll, after.target.workerName))
+  )
+    fail();
+  const domainKey = (d: DomainRow) =>
+    JSON.stringify([d.hostname, d.service, d.zone_id]);
+  const permittedDomain = (d: DomainRow) =>
+    attempted === "hostname" &&
+    d.hostname === after.target.webHostname &&
+    d.service === after.target.workerName &&
+    d.zone_id === after.target.zoneId;
+  if (
+    a.domains.some(
+      (d) => !b.domains.some((x) => domainKey(x) === domainKey(d)),
+    ) ||
+    b.domains.some(
+      (d) =>
+        !a.domains.some((x) => domainKey(x) === domainKey(d)) &&
+        !permittedDomain(d),
+    )
+  )
+    fail();
+  const expected =
+    attempted === "sending" || attempted === "receiving"
+      ? await expectedDNS(cf, after, attempted)
+      : [];
+  const permittedRecord = (r: RecordRow) =>
+    expected.some(
+      (e) => recordKey(e, after.domain) === recordKey(r, after.domain),
+    );
+  // Existing records cannot disappear or be silently replaced, even during retry.
+  if (!hasRecords(b.records, a.records, after.domain)) fail();
+  for (const r of b.records) {
+    if (
+      a.records.some(
+        (x) => recordKey(x, after.domain) === recordKey(r, after.domain),
+      )
+    )
+      continue;
+    if (permittedRecord(r)) continue;
+    // Workers custom domains may generate a proxied DNS record. Ownership is checked above.
+    if (
+      attempted === "hostname" &&
+      r.name === after.target.webHostname &&
+      r.proxied &&
+      b.domains.some(permittedDomain)
+    )
+      continue;
+    fail();
+  }
+}
+async function verifyDNS(cf: CloudflareSetup, plan: Plan) {
+  const expected = [
+    ...(await expectedDNS(cf, plan, "sending")),
+    ...(await expectedDNS(cf, plan, "receiving")),
+  ];
+  if (!hasRecords(plan.snapshot.records, expected, plan.domain))
+    throw new SetupError(
+      "Required mail DNS records are missing or changed. Restore them and retry verification.",
+    );
+  // Bounded concurrent public lookups; credentials never leave the Cloudflare API client.
+  const queries = [
+    ...new Set(
+      expected.map((r) =>
+        JSON.stringify([dnsName(r.name, plan.domain), r.type]),
+      ),
+    ),
+  ];
+  await Promise.all(
+    queries.map(async (q) => {
+      const [name, type] = JSON.parse(q) as [string, string];
+      try {
+        const res = await fetch(
+          "https://cloudflare-dns.com/dns-query?" +
+            new URLSearchParams({ name, type }),
+          {
+            headers: { Accept: "application/dns-json" },
+            redirect: "error",
+            signal: AbortSignal.timeout(8000),
+          },
+        );
+        if (!res.ok) throw Error();
+        const data = await boundedJSON<{
+          Status: number;
+          Answer?: { name: string; type: number; data: string }[];
+        }>(res);
+        const code = { MX: 15, TXT: 16, CNAME: 5 }[type];
+        const answers = (data.Answer || []).filter(
+          (a) => a.type === code && dnsName(a.name, plan.domain) === name,
+        );
+        if (
+          data.Status !== 0 ||
+          !expected
+            .filter(
+              (r) => dnsName(r.name, plan.domain) === name && r.type === type,
+            )
+            .every((r) =>
+              answers.some((a) =>
+                type === "MX"
+                  ? a.data.toLowerCase().replace(/\.$/, "") ===
+                    r.priority + " " + dnsContent(r)
+                  : dnsContent({ ...r, content: a.data }) === dnsContent(r),
+              ),
+            )
+        )
+          throw Error();
+      } catch {
+        throw new SetupError(
+          "Public mail DNS is still pending. Wait and retry verification.",
+        );
+      }
+    }),
+  );
 }
 export const SETUP_STEPS = [
   "sending",
@@ -369,11 +608,21 @@ export async function performSetupStep(
       break;
     }
     case "receiving":
+      if (
+        (await cf.get<{ enabled: boolean }>(zone + "/email/routing")).enabled &&
+        hasRecords(
+          plan.snapshot.records,
+          await expectedDNS(cf, plan, "receiving"),
+          plan.domain,
+        )
+      )
+        break;
       await cf.request(zone + "/email/routing/dns", "POST", {
         name: plan.domain,
       });
       break;
     case "routing":
+      if (sameRule(plan.snapshot.catchAll, plan.target.workerName)) break;
       await cf.request(zone + "/email/routing/rules/catch_all", "PUT", {
         enabled: true,
         name: "UnfoldMail",
@@ -382,7 +631,15 @@ export async function performSetupStep(
       });
       break;
     case "hostname":
-      if (plan.target.webHostname)
+      if (
+        plan.target.webHostname &&
+        !plan.snapshot.domains.some(
+          (d) =>
+            d.hostname === plan.target.webHostname &&
+            d.service === plan.target.workerName &&
+            d.zone_id === plan.target.zoneId,
+        )
+      )
         await cf.request(
           "/accounts/" + plan.accountId + "/workers/domains",
           "PUT",
@@ -404,13 +661,40 @@ export async function performSetupStep(
       if (
         !sending.some((s) => s.name === plan.domain && s.enabled) ||
         !receiving.enabled ||
-        !rule.enabled ||
-        rule.actions?.[0]?.type !== "worker" ||
-        rule.actions[0].value?.[0] !== plan.target.workerName
+        !sameRule(rule, plan.target.workerName)
       )
         throw new SetupError(
           "Cloudflare configuration is still pending. Wait and retry verification.",
         );
+      await verifyDNS(cf, plan);
+      if (plan.target.webHostname) {
+        if (
+          !plan.snapshot.domains.some(
+            (d) =>
+              d.hostname === plan.target.webHostname &&
+              d.service === plan.target.workerName &&
+              d.zone_id === plan.target.zoneId,
+          )
+        )
+          throw new SetupError(
+            "The webmail hostname is not attached to this Worker. Retry hostname setup.",
+          );
+        try {
+          const res = await fetch(
+            "https://" + plan.target.webHostname + "/api/setup/identity",
+            { redirect: "error", signal: AbortSignal.timeout(8000) },
+          );
+          if (
+            !res.ok ||
+            (await boundedJSON<{ id?: string }>(res)).id !== plan.identity
+          )
+            throw Error();
+        } catch {
+          throw new SetupError(
+            "Webmail HTTPS is still pending or points elsewhere. Wait and retry verification.",
+          );
+        }
+      }
       break;
     }
     default:

@@ -46,7 +46,20 @@ export default function Setup() {
     [hostname, setHostname] = useState("");
   const [zones, setZones] = useState<{ id: string; name: string }[]>([]),
     [workers, setWorkers] = useState<{ id: string }[]>([]);
+  const [oauthCode, setOauthCode] = useState("");
   const [oauthUrl, setOauthUrl] = useState("");
+  useEffect(() => {
+    const fragment = new URLSearchParams(window.location.hash.slice(1));
+    const code = fragment.get("oauth_code");
+    if (code) {
+      window.history.replaceState(
+        null,
+        "",
+        window.location.pathname + window.location.search,
+      );
+      if (/^[A-Za-z0-9_-]{43}$/.test(code)) setOauthCode(code);
+    }
+  }, []);
   async function refresh() {
     const s = await request<Status>();
     setStatus(s);
@@ -207,6 +220,7 @@ export default function Setup() {
                       "/oauth/start",
                       "POST",
                     );
+                    setOauthCode("");
                     setOauthUrl(r.url);
                   })
                 }
@@ -218,16 +232,18 @@ export default function Setup() {
                   <a href={oauthUrl} target="_blank" rel="noreferrer">
                     Open Cloudflare authorization
                   </a>{" "}
-                  in a new tab. Then return here.
+                  in a new tab. After authorization you will return to this
+                  installation. Select Finish connection there.
                 </p>
               )}
               <button
                 className="btn"
                 type="button"
-                disabled={!oauthUrl}
+                disabled={!oauthCode}
                 onClick={() =>
                   void run(async () => {
-                    await request("/oauth/finish", "POST");
+                    await request("/oauth/finish", "POST", { code: oauthCode });
+                    setOauthCode("");
                     setOauthUrl("");
                     await refresh();
                   })

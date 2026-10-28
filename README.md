@@ -59,7 +59,12 @@ needs end-to-end verification before this template is declared a stable release.
    webmail hostname, review the changes, and apply them.
 9. The wizard enables Email Sending, configures incoming-mail DNS and the catch-all
    Worker rule, optionally attaches the webmail hostname, and checks configuration.
-   A failed step can be resumed. It stops if an existing mail provider or conflicting
+   A failed step can be resumed. Setup records each attempt before changing
+   Cloudflare and reconciles committed changes after a lost response. Unrelated
+   DNS changes still require a new review. Completion requires the expected mail
+   DNS records, public DNS resolution, and (when selected) the webmail hostname
+   serving this installation over HTTPS. DNS or certificate propagation may
+   require waiting and selecting Resume setup. It stops if an existing mail provider or conflicting
    routing/hostname configuration requires a migration decision.
 10. Create an employee account. Test an incoming message, an outgoing message to
     an external mailbox, and an attachment before inviting your team. Then remove

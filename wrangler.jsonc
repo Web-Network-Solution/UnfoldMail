@@ -4,7 +4,8 @@
   "main": "packages/api/src/index.ts",
   "compatibility_date": "2025-01-01",
   "compatibility_flags": [
-    "nodejs_compat"
+    "nodejs_compat",
+    "global_fetch_strictly_public"
   ],
   "observability": {
     "enabled": true,

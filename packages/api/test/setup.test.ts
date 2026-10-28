@@ -14,6 +14,7 @@ import {
 import {
   CloudflareSetup,
   inspectSetup,
+  performSetupStep,
 } from "../src/services/setup-cloudflare";
 import { broker, type BrokerEnv } from "../src/setup-service";
 import type { Env, HonoVariables } from "../src/types";
@@ -50,7 +51,7 @@ function fixture(role = "super_admin") {
     headers: Record<string, string> = {},
   ) =>
     app.request(
-      "/setup" + path,
+      "https://mail.example.com/setup" + path,
       {
         method,
         headers: { "Content-Type": "application/json", ...headers },
@@ -60,7 +61,33 @@ function fixture(role = "super_admin") {
     );
   return { ...f, env, call };
 }
-let records: { id: string; type: string; name: string; content: string }[],
+const senderTag = "c".repeat(32);
+const sendingDNS = [
+  {
+    id: "send",
+    type: "TXT",
+    name: "cf-bounce.example.com",
+    content: "v=spf1 include:_spf.mx.cloudflare.net ~all",
+  },
+];
+const receivingDNS = [
+  {
+    id: "receive",
+    type: "MX",
+    name: "example.com",
+    content: "route1.mx.cloudflare.net",
+    priority: 10,
+  },
+];
+let domains: { hostname: string; service: string; zone_id: string }[];
+let loseResponse: string;
+let records: {
+    id: string;
+    type: string;
+    name: string;
+    content: string;
+    priority?: number;
+  }[],
   rule: unknown,
   failRouting: boolean,
   identity: string,
@@ -69,7 +96,29 @@ let records: { id: string; type: string; name: string; content: string }[],
 function network() {
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
-    if (url.includes("workers.dev")) return Response.json({ id: identity });
+    if (url.endsWith("/status"))
+      return Response.json({ available: true, protocolVersion: 2 });
+    if (url.startsWith("https://cloudflare-dns.com/")) {
+      const q = new URL(url).searchParams;
+      return Response.json({
+        Status: 0,
+        Answer: records
+          .filter((r) => r.name === q.get("name") && r.type === q.get("type"))
+          .map((r) => ({
+            name: r.name,
+            type: r.type === "MX" ? 15 : 16,
+            data:
+              r.type === "MX"
+                ? r.priority + " " + r.content
+                : '"' + r.content + '"',
+          })),
+      });
+    }
+    if (
+      url.includes("workers.dev") ||
+      url.startsWith("https://mail.example.com/api/setup/identity")
+    )
+      return Response.json({ id: identity });
     const p = new URL(url).pathname.replace("/client/v4", "");
     const method = init?.method || "GET";
     if (method !== "GET") {
@@ -77,7 +126,17 @@ function network() {
       if (p.endsWith("/catch_all") && failRouting)
         return new Response("", { status: 503 });
       if (p.endsWith("/catch_all")) rule = JSON.parse(String(init?.body));
-      if (p.endsWith("/subdomains")) sendingEnabled = true;
+      if (p.endsWith("/subdomains")) {
+        sendingEnabled = true;
+        records.push(...sendingDNS);
+      }
+      if (p.endsWith("/routing/dns")) records.push(...receivingDNS);
+      if (p.endsWith("/workers/domains"))
+        domains.push(JSON.parse(String(init?.body)));
+      if (loseResponse && p.endsWith(loseResponse)) {
+        loseResponse = "";
+        throw Error("lost after commit");
+      }
       return Response.json({ success: true, result: {} });
     }
     let result: unknown = [];
@@ -103,16 +162,23 @@ function network() {
       };
     else if (p.endsWith("/workers/subdomain"))
       result = { subdomain: "account" };
+    else if (p.endsWith("/workers/domains")) result = domains;
+    else if (p.endsWith("/routing/dns")) result = receivingDNS;
+    else if (p.endsWith("/" + senderTag + "/dns")) result = sendingDNS;
     else if (p.endsWith("/dns_records")) result = records;
     else if (p.endsWith("/catch_all")) result = rule;
     else if (p.endsWith("/email/routing")) result = { enabled: true };
     else if (p.endsWith("/email/sending/subdomains"))
-      result = [{ name: "example.com", enabled: sendingEnabled }];
+      result = [
+        { name: "example.com", enabled: sendingEnabled, tag: senderTag },
+      ];
     return Response.json({ success: true, result });
   });
 }
 beforeEach(() => {
   records = [];
+  domains = [];
+  loseResponse = "";
   sendingEnabled = false;
   rule = { enabled: false };
   failRouting = false;
@@ -352,6 +418,15 @@ function brokerFixture() {
       "utf8",
     ),
   );
+  f.sqlite.exec(
+    readFileSync(
+      join(
+        __dirname,
+        "../../../deployment/oauth/migrations/0002_browser_handoff.sql",
+      ),
+      "utf8",
+    ),
+  );
   const env: BrokerEnv = {
     BROKER_DB: f.db,
     BROKER_ORIGIN: "https://setup.example.com",
@@ -400,7 +475,11 @@ describe("optional OAuth handoff", () => {
     const f = brokerFixture(),
       verifier = "a".repeat(43),
       challenge = await setupHash(verifier);
-    const start = await f.call("/connect?challenge=" + challenge);
+    const start = await f.call(
+      "/connect?challenge=" +
+        challenge +
+        "&installation=https://unfoldmail.account.workers.dev&domain=example.com",
+    );
     expect(start.status).toBe(302);
     const u = new URL(start.headers.get("location")!);
     expect(u.searchParams.get("code_challenge_method")).toBe("S256");
@@ -408,7 +487,8 @@ describe("optional OAuth handoff", () => {
     const state = u.searchParams.get("state");
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (_i: unknown, init?: RequestInit) => {
+      vi.fn(async (_i: RequestInfo | URL, init?: RequestInit) => {
+        if (!String(_i).includes("oauth2/token")) return network()(_i, init);
         const p = new URLSearchParams(String(init?.body));
         expect(await setupHash(p.get("code_verifier")!)).toBe(
           u.searchParams.get("code_challenge"),
@@ -420,16 +500,23 @@ describe("optional OAuth handoff", () => {
         });
       }),
     );
+    const callback = await f.call(
+      "/callback?state=" + state + "&code=code",
+      "GET",
+      undefined,
+      cookie,
+    );
+    expect(callback.status).toBe(302);
+    const destination = new URL(callback.headers.get("location")!);
+    expect(destination.origin).toBe("https://unfoldmail.account.workers.dev");
+    const code = new URLSearchParams(destination.hash.slice(1)).get(
+      "oauth_code",
+    );
+    expect((await f.call("/claim", "POST", { verifier })).status).toBe(400);
     expect(
-      (
-        await f.call(
-          "/callback?state=" + state + "&code=code",
-          "GET",
-          undefined,
-          cookie,
-        )
-      ).status,
-    ).toBe(200);
+      (await f.call("/claim", "POST", { verifier, code: "x".repeat(43) }))
+        .status,
+    ).toBe(409);
     expect(
       (
         await f.call(
@@ -440,25 +527,31 @@ describe("optional OAuth handoff", () => {
         )
       ).status,
     ).toBe(400);
-    expect(fetch).toHaveBeenCalledTimes(1);
+
     expect(
       String(f.sqlite.prepare("SELECT payload FROM grants").get()?.payload),
     ).not.toContain(token);
     expect(
-      (await f.call("/claim", "POST", { verifier: "z".repeat(43) })).status,
+      (await f.call("/claim", "POST", { verifier: "z".repeat(43), code }))
+        .status,
     ).toBe(409);
-    const claim = await f.call("/claim", "POST", { verifier });
+    const claim = await f.call("/claim", "POST", { verifier, code });
     expect(((await claim.json()) as any).token).toBe(token);
-    expect((await f.call("/claim", "POST", { verifier })).status).toBe(409);
+    expect((await f.call("/claim", "POST", { verifier, code })).status).toBe(
+      409,
+    );
     f.sqlite.close();
   });
   it("does not release expired grants", async () => {
     const f = brokerFixture();
-    const verifier = "a".repeat(43);
+    const verifier = "a".repeat(43),
+      code = "d".repeat(43);
     f.sqlite
-      .prepare("INSERT INTO grants VALUES(?,?,?)")
-      .run(await setupHash(verifier), "ciphertext", 0);
-    expect((await f.call("/claim", "POST", { verifier })).status).toBe(409);
+      .prepare("INSERT INTO grants VALUES(?,?,?,?)")
+      .run(await setupHash(verifier), "ciphertext", 0, await setupHash(code));
+    expect((await f.call("/claim", "POST", { verifier, code })).status).toBe(
+      409,
+    );
     f.sqlite.close();
   });
   it("binds pending OAuth to the initiating administrator session", async () => {
@@ -484,7 +577,158 @@ describe("optional OAuth handoff", () => {
         )
       ).status,
     ).toBe(400);
-    expect(fetch).not.toHaveBeenCalled();
+    expect(fetch).toHaveBeenCalledTimes(1);
     f.sqlite.close();
   });
+});
+
+describe("setup recovery and readiness regressions", () => {
+  const target = {
+    zoneId,
+    workerName: "unfoldmail",
+    webHostname: "mail.example.com",
+  };
+  it.each(["/subdomains", "/routing/dns", "/catch_all", "/workers/domains"])(
+    "recovers a lost response after %s commits without duplicate writes",
+    async (endpoint) => {
+      const f = fixture();
+      identity = await setupIdentity(f.env);
+      await f.call("/token", "POST", { token });
+      const p = (await (await f.call("/plan", "POST", target)).json()) as any;
+      const apply = () => f.call("/apply", "POST", { planId: p.data.id });
+      loseResponse = endpoint;
+      let failures = 0;
+      for (let i = 0; i < 6; i++) {
+        const res = await apply();
+        if (res.status === 502) failures++;
+        else expect(res.status).toBe(200);
+      }
+      expect(failures).toBe(1);
+      expect(writes.filter((w) => w.endsWith(endpoint))).toHaveLength(1);
+      expect(((await (await apply()).json()) as any).data.done).toBe(true);
+      f.sqlite.close();
+    },
+  );
+  it("still blocks unrelated edits after an ambiguous commit", async () => {
+    const f = fixture();
+    identity = await setupIdentity(f.env);
+    await f.call("/token", "POST", { token });
+    const p = (await (await f.call("/plan", "POST", target)).json()) as any;
+    loseResponse = "/subdomains";
+    expect((await f.call("/apply", "POST", { planId: p.data.id })).status).toBe(
+      502,
+    );
+    records.push({
+      id: "other",
+      type: "TXT",
+      name: "example.com",
+      content: "unexpected",
+    });
+    expect((await f.call("/apply", "POST", { planId: p.data.id })).status).toBe(
+      409,
+    );
+    expect(writes).toHaveLength(1);
+    f.sqlite.close();
+  });
+  it.each(["missing DNS", "public DNS", "hostname", "HTTPS"])(
+    "does not report completion with %s pending",
+    async (failure) => {
+      sendingEnabled = true;
+      records = [...sendingDNS, ...receivingDNS];
+      rule = {
+        enabled: true,
+        actions: [{ type: "worker", value: [target.workerName] }],
+      };
+      domains = [
+        {
+          hostname: target.webHostname,
+          service: target.workerName,
+          zone_id: zoneId,
+        },
+      ];
+      if (failure === "missing DNS") records = [];
+      if (failure === "hostname") domains = [];
+      const cf = new CloudflareSetup(token);
+      const plan = await inspectSetup(cf, target, "example.com", identity);
+      const base = network();
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (i: RequestInfo | URL, o?: RequestInit) => {
+          if (
+            failure === "public DNS" &&
+            String(i).startsWith("https://cloudflare-dns.com")
+          )
+            return Response.json({ Status: 3 });
+          if (
+            failure === "HTTPS" &&
+            String(i).startsWith("https://mail.example.com")
+          )
+            throw Error("TLS unavailable");
+          return base(i, o);
+        }),
+      );
+      await expect(
+        performSetupStep(new CloudflareSetup(token), plan, "verification"),
+      ).rejects.toThrow();
+    },
+  );
+  it("enables public Worker fetches on the deployment compatibility date", () => {
+    expect(
+      readFileSync(join(__dirname, "../../../wrangler.jsonc"), "utf8"),
+    ).toContain('"global_fetch_strictly_public"');
+  });
+  it("rejects OAuth destinations outside the authorizing account", async () => {
+    const f = brokerFixture();
+    const start = await f.call(
+      "/connect?challenge=" +
+        (await setupHash("a".repeat(43))) +
+        "&installation=https://attacker.other.workers.dev&domain=example.com",
+    );
+    const state = new URL(start.headers.get("location")!).searchParams.get(
+      "state",
+    );
+    const cookie = start.headers.get("set-cookie")!.split(";")[0];
+    const base = network();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (i: RequestInfo | URL, o?: RequestInit) =>
+        String(i).includes("oauth2/token")
+          ? Response.json({
+              access_token: token,
+              token_type: "Bearer",
+              expires_in: 3600,
+            })
+          : base(i, o),
+      ),
+    );
+    expect(
+      (
+        await f.call(
+          "/callback?state=" + state + "&code=code",
+          "GET",
+          undefined,
+          cookie,
+        )
+      ).status,
+    ).toBe(403);
+    expect(f.sqlite.prepare("SELECT count(*) AS n FROM grants").get()?.n).toBe(
+      0,
+    );
+    f.sqlite.close();
+  });
+});
+
+it("refuses an old or unavailable OAuth broker before saving pending authorization", async () => {
+  const f = fixture();
+  f.env.SETUP_OAUTH_BROKER_URL = "https://setup.example.com";
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => Response.json({ available: true, protocolVersion: 1 })),
+  );
+  expect((await f.call("/oauth/start", "POST", {})).status).toBe(400);
+  expect(
+    f.sqlite.prepare("SELECT oauth_pending FROM setup_state").get()
+      ?.oauth_pending,
+  ).toBeNull();
+  f.sqlite.close();
 });

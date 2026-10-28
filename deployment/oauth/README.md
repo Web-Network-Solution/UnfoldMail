@@ -46,7 +46,7 @@ is registered and the service has passed an end-to-end authorization test.
    npx wrangler deploy --config deployment/oauth/wrangler.jsonc
    ```
 
-6. Verify `/status` reports `available: true`. Test authorization, cancellation,
+6. Verify `/status` reports `available: true` and `protocolVersion: 2`. Test authorization, cancellation,
    expiration, and successful credential retrieval from a disposable UnfoldMail
    installation. This status only verifies required configuration, not the client
    registration or Cloudflare permissions.
@@ -58,11 +58,23 @@ is registered and the service has passed an end-to-end authorization test.
 
 The authenticated installation creates a random verifier and saves it encrypted,
 bound to the initiating administrator session. Only its SHA-256 challenge is put
-in the service URL. The service uses a separate state cookie and S256 PKCE for
+in the service URL, alongside the installation origin and mail domain. The service uses a separate state cookie and S256 PKCE for
 Cloudflare authorization. Tokens never appear in URLs or the browser response.
 
-The service encrypts the access token until the installation claims it using the
-original verifier. Claim atomically removes the grant. Pending authorization
+Before handing back authorization, the service checks the granted Cloudflare
+account: the mail zone must be active, and the destination must be a Worker in
+that account with the UnfoldMail bindings. Custom destinations must also belong
+to the mail zone. It never fetches an arbitrary destination to prove ownership.
+
+The callback redirects the authorizing browser to that installation with a random
+one-time delivery code in the URL fragment. The app immediately removes the
+fragment and sends the code to its authenticated setup endpoint when the user
+selects **Finish connection**. The original administrator session must match.
+
+The service encrypts the access token until the installation claims it using both
+the original verifier and the browser delivery code. Knowing or choosing the
+original challenge is insufficient to retrieve someone else's authorization.
+Claim atomically removes the grant; a wrong code does not consume it. Pending authorization
 expires after ten minutes; a completed grant expires after five minutes or when
 its access token expires, whichever comes first. Cleanup runs every five minutes.
 No refresh token is retained. Removal in the app deletes its local copy; users can
@@ -89,3 +101,12 @@ npx wrangler deploy --dry-run --config deployment/oauth/wrangler.jsonc
 
 The placeholder database ID may be replaced with a non-production UUID for this
 local packaging check. A dry run does not prove that OAuth is registered or live.
+
+## Upgrading the handoff protocol
+
+Deploy the app and broker from this version together. Broker migration
+`0002_browser_handoff.sql` adds destination and delivery-code fields and clears
+only pending OAuth flows and unclaimed grants from the old protocol. Users with
+an unfinished authorization must start again. It does not touch mailbox data or
+credentials already saved in an installation. The app refuses protocol-v1 brokers.
+Keep OAuth disabled until the real client has passed the end-to-end checks above.

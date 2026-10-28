@@ -108,3 +108,38 @@ it("requires review and refuses a blocked plan", async () => {
     ).disabled,
   ).toBe(true);
 });
+
+it("accepts browser handoff only from the fragment and clears it before finishing", async () => {
+  const code = "c".repeat(43);
+  window.history.replaceState(null, "", "/admin/setup#oauth_code=" + code);
+  const mock = vi.fn(async () =>
+    Response.json({
+      success: true,
+      data: { ...initial, oauthAvailable: true },
+    }),
+  );
+  vi.stubGlobal("fetch", mock);
+  render(<Setup />);
+  await screen.findByRole("button", { name: "Finish connection" });
+  expect(window.location.hash).toBe("");
+  fireEvent.click(screen.getByRole("button", { name: "Finish connection" }));
+  await waitFor(() =>
+    expect(mock).toHaveBeenCalledWith(
+      "/api/admin/setup/oauth/finish",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ code }),
+        credentials: "include",
+      }),
+    ),
+  );
+  await waitFor(() =>
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Finish connection",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true),
+  );
+});
