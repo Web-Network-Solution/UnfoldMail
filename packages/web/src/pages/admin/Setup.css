@@ -1,0 +1,73 @@
+.setup-page {
+  max-width: 960px;
+}
+.setup-page > p {
+  margin: 12px 0 24px;
+}
+.setup-section {
+  border: 1px solid var(--border-color, #454550);
+  border-radius: 12px;
+  padding: 24px;
+  margin: 24px 0;
+  min-width: 0;
+}
+.setup-section legend {
+  font-size: 1.2rem;
+  font-weight: 600;
+  padding: 0 8px;
+}
+.setup-section p,
+.setup-section li {
+  line-height: 1.6;
+  margin: 10px 0;
+}
+.setup-section label {
+  display: block;
+  margin: 18px 0 8px;
+}
+.setup-section .form-input {
+  width: 100%;
+  box-sizing: border-box;
+}
+.setup-section button {
+  margin: 16px 12px 0 0;
+}
+.setup-section details {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-color, #454550);
+}
+.setup-section summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.setup-section ul,
+.setup-section ol {
+  padding-left: 24px;
+}
+.setup-error {
+  border-left: 3px solid #dc5770;
+  padding: 12px;
+  background: rgba(220, 87, 112, 0.1);
+  overflow-wrap: anywhere;
+}
+.setup-note {
+  font-size: 0.9rem;
+  opacity: 0.85;
+}
+.setup-section a {
+  color: var(--accent-color, #ae9eff);
+  text-decoration: underline;
+}
+.setup-section:disabled {
+  opacity: 0.75;
+}
+@media (max-width: 600px) {
+  .setup-section {
+    padding: 16px;
+  }
+  .setup-section button {
+    width: 100%;
+    margin-right: 0;
+  }
+}

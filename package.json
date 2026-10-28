@@ -44,7 +44,7 @@
         "description": "Exact HTTPS origin where you will open UnfoldMail, e.g. https://unfoldmail.your-subdomain.workers.dev (no trailing slash)."
       },
       "BOOTSTRAP_SECRET": {
-        "description": "Generate a unique random secret of at least 32 characters. Required once to create the first administrator."
+        "description": "Unique random secret of at least 32 characters. Creates the first administrator and encrypts saved setup credentials. Keep it securely."
       }
     }
   }

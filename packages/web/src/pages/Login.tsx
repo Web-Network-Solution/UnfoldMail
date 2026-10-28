@@ -98,7 +98,7 @@ export default function Login() {
       await authApi.bootstrap({ email, displayName, password: newPassword, bootstrapSecret });
       const res = await authApi.login(email, newPassword);
       setUser(res.data!.user);
-      navigate('/admin');
+      navigate('/admin/setup');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Setup failed');
     } finally {

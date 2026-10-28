@@ -7,6 +7,8 @@ import type { Database } from "./services/mailbox-storage";
  */
 export interface Env {
   BOOTSTRAP_SECRET?: string;
+  SETUP_ENCRYPTION_KEY?: string;
+  SETUP_OAUTH_BROKER_URL?: string;
   /** Shared with the private Go gateway; set using Wrangler secrets. */
   PROTOCOL_GATEWAY_SECRET?: string;
   AI_CONTROL?: DurableObjectNamespace<import('./durable-objects/ai-control').AIControlDO>;

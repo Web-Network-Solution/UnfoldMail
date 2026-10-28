@@ -17,3 +17,5 @@ jobs:
       - run: npm run db:migrate
       - run: npm run build
       - run: npx wrangler deploy --dry-run --config wrangler.jsonc
+      - run: npx wrangler d1 migrations apply BROKER_DB --local --config deployment/oauth/wrangler.jsonc
+      - run: npx wrangler deploy --dry-run --config deployment/oauth/wrangler.jsonc

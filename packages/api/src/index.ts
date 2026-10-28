@@ -1,3 +1,5 @@
+import setupRoutes from './routes/setup';
+import { setupIdentity, setupBrowserEnv } from './services/setup-state';
 import {protocolGateway,protocolSettings,protocolAdmin} from './routes/protocol';
 import { aiRoutes, aiAdminRoutes, aiMcpRoutes } from './routes/ai';
 import { mailboxEnv, MailboxUnavailable, provisionMailboxes } from './services/mailbox-storage';
@@ -90,6 +92,8 @@ app.route('/api/calendar-rsvp', calendarRsvpRoutes);
 app.get('/api/health', (c) => c.json({ status: 'ok', timestamp: nowIso() }));
 
 // ─── WebSocket Upgrade Route ──────────────────────────────────────
+
+app.get('/api/setup/identity', async c => { c.header('Cache-Control','no-store'); return c.json({id:await setupIdentity(c.env)}); });
 
 app.get('/api/ws', authMiddleware, async (c) => {
   if (c.req.header('Upgrade') !== 'websocket') {
@@ -188,6 +192,7 @@ app.route('/api', protectedApi);
 const adminApi = new Hono<{ Bindings: Env; Variables: HonoVariables }>();
 adminApi.use('*', authMiddleware);
 adminApi.use('*', adminMiddleware);
+adminApi.route('/setup', setupRoutes);
 adminApi.route('/', adminRoutes);
 adminApi.route('/forwarding', forwardingAdminRoutes);
 adminApi.route('/mailboxes', mailboxAdminRoutes);
@@ -221,7 +226,7 @@ export default {
   /**
    * HTTP fetch handler — serves the Hono REST API.
    */
-  fetch: (request: Request, env: Env, ctx: ExecutionContext) => app.fetch(request, env, ctx),
+  fetch: async (request: Request, env: Env, ctx: ExecutionContext) => app.fetch(request, await setupBrowserEnv(env), ctx),
 
   /**
    * Email Routing handler — stages the raw message in R2 and enqueues a

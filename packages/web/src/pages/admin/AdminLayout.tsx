@@ -68,6 +68,7 @@ export default function AdminLayout() {
         </div>
 
         <nav className="admin-nav">
+          {role === 'super_admin' && <Link to="/admin/setup" className={`admin-nav-item ${pathname === '/admin/setup' ? 'active' : ''}`} onClick={() => setIsMobileSidebarOpen(false)}><IconFolderCog size={18}/><span>Email setup</span></Link>}
           {role === 'super_admin' && <Link to="/admin/protocol" className={`admin-nav-item ${pathname === '/admin/protocol' ? 'active' : ''}`} onClick={() => setIsMobileSidebarOpen(false)}><IconMail size={18}/><span>Mail app access</span></Link>}
           {role === 'super_admin' && <Link to="/admin/ai" className={`admin-nav-item ${pathname === '/admin/ai' ? 'active' : ''}`} onClick={() => setIsMobileSidebarOpen(false)}><IconFolderCog size={18}/><span>AI assistant</span></Link>}
           {role === 'super_admin' && <Link to="/admin/mailbox-storage" className={`admin-nav-item ${pathname === '/admin/mailbox-storage' ? 'active' : ''}`} onClick={() => setIsMobileSidebarOpen(false)}><IconFolderCog size={18}/><span>Mailbox storage</span></Link>}

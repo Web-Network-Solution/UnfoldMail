@@ -48,23 +48,64 @@ needs end-to-end verification before this template is declared a stable release.
    ```
 5. Deploy. The build compiles the web app; the deploy command applies the public D1
    migrations by binding name and deploys the Worker. Cloudflare provisions resources.
-6. If the actual URL differs from `APP_URL`, update that variable in the Worker
-   settings before opening setup. Keep the connected repository configuration in
-   sync with deployment settings for future builds. For a custom hostname, attach
-   it under Workers **Settings > Domains & Routes** and use that origin as `APP_URL`.
+6. If the actual URL differs from `APP_URL`, update that variable before opening
+   setup and keep the connected repository configuration in sync. Keep the
+   Worker's workers.dev address enabled for installation verification.
 7. Open the app. Enter the installation secret and create the first administrator
-   using an address on `EMAIL_DOMAIN`. After setup, the endpoint refuses further
-   administrator creation. You may remove `BOOTSTRAP_SECRET` from Worker secrets.
-8. Configure Email Routing to send mail for your domain to this Worker. Enable
-   Email Service sending and complete the domain DNS verification steps shown
-   by Cloudflare. Do not replace another mail provider's MX records until ready
-   to move receiving mail.
-9. Create an employee account. Test an incoming message, an outgoing message to
-   an external mailbox, and an attachment before inviting your team.
+   using an address on `EMAIL_DOMAIN`. Further first-admin creation is then disabled.
+8. The **Email setup** wizard opens. **Paste API token** is the primary connection
+   method. Create a token scoped to your account/domain using the instructions in
+   the wizard. Select this installation's Worker, optionally enter an unused
+   webmail hostname, review the changes, and apply them.
+9. The wizard enables Email Sending, configures incoming-mail DNS and the catch-all
+   Worker rule, optionally attaches the webmail hostname, and checks configuration.
+   A failed step can be resumed. It stops if an existing mail provider or conflicting
+   routing/hostname configuration requires a migration decision.
+10. Create an employee account. Test an incoming message, an outgoing message to
+    an external mailbox, and an attachment before inviting your team. Then remove
+    the saved setup credential if you do not need further setup operations.
 
-Domain verification and mail routing cannot be skipped by an application deployment
-button. See [Cloudflare domain setup](https://developers.cloudflare.com/email-service/configuration/domains/)
-and [routing to Workers](https://developers.cloudflare.com/email-service/get-started/route-emails/).
+The wizard currently supports an active **root domain matching `EMAIL_DOMAIN`**.
+Subdomain mail, moving existing providers, registrar nameserver changes, billing,
+and Email Service eligibility still require account-owner action. An account's
+Pro plan alone does not establish Email Sending eligibility. DNS and HTTPS
+certificates may take time to become ready. Configuration completion is not proof
+of message delivery. See [Cloudflare domain setup](https://developers.cloudflare.com/email-service/configuration/domains/).
+
+### Credential storage and optional OAuth
+
+API tokens go from your browser to your own Worker and then to Cloudflare. Web
+Network Solutions does not receive them. Tokens are encrypted with AES-256-GCM in
+D1; the encryption key is derived from a Worker secret, outside the database.
+Do not delete or rotate `BOOTSTRAP_SECRET` while setup credentials are saved: it
+is the default encryption secret. You may instead set a separate random
+`SETUP_ENCRYPTION_KEY` (at least 32 characters) **before connecting**. To change
+keys later, remove the stored credential first, change the key, then reconnect.
+Back up the encryption secret separately from D1. Encryption at rest does not
+protect against someone who controls the Worker and its secrets.
+
+The token needs Zone Read, DNS Read, Zone Settings Edit, Email Routing Rules Edit,
+Email Sending Edit, and Workers Scripts Edit on the selected zone/account. The
+wizard does not require full account access. Removing the stored credential does
+not undo configuration or revoke a token at Cloudflare; revoke it there separately.
+
+**Connect with Cloudflare** is an optional OAuth method. It remains unavailable
+unless `SETUP_OAUTH_BROKER_URL` is configured for a working setup service. Both
+methods use the same review and provisioning steps. The optional service briefly
+holds an encrypted OAuth token for a one-time handoff; it retains no refresh token.
+Expired OAuth connections require authorization again.
+
+Web Network Solutions' intended service address is
+`https://unfoldmail-setup.webnetworksolution.in`. The service implementation and
+[publisher deployment instructions](deployment/oauth/README.md) are included.
+The public OAuth client must be registered and the service deployed before this
+address can be enabled in customer installations. It is not a dependency of
+API-token setup or normal mail operations.
+
+A hostname added by the wizard is admitted to the browser-origin allowlist after
+successful attachment. Existing `APP_URL` remains the canonical address used in
+background-generated links. Keep that address enabled, or update `APP_URL` in
+Worker and repository configuration when intentionally changing the canonical URL.
 
 ## Optional features
 

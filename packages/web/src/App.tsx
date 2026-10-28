@@ -1,3 +1,4 @@
+import AdminSetup from './pages/admin/Setup';
 import AdminProtocolSettings from './pages/admin/ProtocolSettings';
 import AdminAISettings from './pages/admin/AISettings';
 import AIAssistant from './components/AIAssistant';
@@ -109,6 +110,7 @@ function App() {
               }
             >
               <Route index element={<AdminDashboard />} />
+              <Route path="setup" element={<AdminSetup />} />
               <Route path="protocol" element={<AdminProtocolSettings />} />
               <Route path="ai" element={<AdminAISettings />} />
               <Route path="users" element={<AdminUsers />} />
