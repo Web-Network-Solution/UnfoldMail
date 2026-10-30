@@ -233,6 +233,8 @@ export async function inspectSetup(
       target.webHostname.length > 253)
   )
     throw new SetupError("Use a webmail hostname within the selected Cloudflare zone.");
+  if (target.webHostname === domain)
+    throw new SetupError("Leave Webmail hostname blank to keep the current URL, or choose a different hostname. The email domain is reserved for mail DNS records.");
   const subdomain = domain !== zone.name.toLowerCase();
   recipients = [...new Set(recipients.map(r => r.toLowerCase()))].filter(r => r.endsWith("@" + domain)).sort();
   const accountId = zone.account.id;

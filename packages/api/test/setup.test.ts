@@ -930,6 +930,12 @@ describe("email subdomains", () => {
     expect(addressRules).toHaveLength(25);
     f.sqlite.close();
   });
+  it("rejects using the email domain as the web hostname before any changes", async () => {
+    const f = subFixture();
+    await expect(inspectSetup(new CloudflareSetup(token), {...target, webHostname:mailDomain}, mailDomain, identity)).rejects.toThrow("reserved for mail DNS");
+    expect(writes).toEqual([]);
+    f.sqlite.close();
+  });
   it("accepts a sibling web hostname but rejects unrelated hosts", async () => {
     const f = subFixture();
     const plan = await inspectSetup(new CloudflareSetup(token), {...target, webHostname: "web.example.com"}, mailDomain, identity, ["employee@"+mailDomain]);
