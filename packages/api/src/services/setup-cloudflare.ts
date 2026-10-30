@@ -168,6 +168,8 @@ type Snapshot = {
 };
 export type Rule = {
   id?: string;
+  tag?: string;
+  priority?: number;
   name?: string;
   matchers?: {type: string; field?: string; value?: string}[];
   enabled?: boolean;
@@ -327,7 +329,7 @@ export async function inspectSetup(
       "An active catch-all rule sends mail elsewhere. It will not be overwritten.",
     );
   if (rules.some((rule) => subdomain
-    ? recipients.some(email => ruleMatches(rule, email) && !recipientRule(rule, email, target.workerName))
+    ? recipients.some(email => recipientConflict(rule, email, target.workerName))
     : rule.enabled && !sameAction(rule)))
     blockers.push(
       "Existing address-specific routing rules need review. They will not be overwritten.",
@@ -378,7 +380,7 @@ export async function inspectSetup(
       "Enable Cloudflare sending and its authentication DNS records.",
       "Enable incoming mail DNS records.",
       ...(subdomain ? [
-        "Create individual incoming-mail rules for " + recipients.length + " existing mailboxes on " + domain + ". Parent-domain routing stays unchanged.",
+        "Create or enable individual incoming-mail rules for " + recipients.length + " existing mailboxes on " + domain + ". Parent-domain routing stays unchanged.",
         "Keep the API token connected: new mailbox rules are provisioned automatically by the scheduled job. Cloudflare routing-rule limits apply.",
       ] : ["Route unmatched incoming addresses to this UnfoldMail Worker."]),
       ...(target.webHostname
@@ -429,27 +431,57 @@ export function isSubdomainPlan(plan: Plan) {
 export function ruleMatches(rule: Rule, email: string) {
   return rule.matchers?.some(m => m.type === "all" || (m.type === "literal" && m.field === "to" && m.value?.toLowerCase() === email)) || false;
 }
+function literalRecipient(rule: Rule, email: string) {
+  return rule.matchers?.length === 1 && rule.matchers[0].type === "literal" && ruleMatches(rule, email);
+}
+function ruleId(rule: Rule) {
+  const id = rule.id || rule.tag || "";
+  return /^[a-f0-9]{32}$/i.test(id) ? id : "";
+}
 export function recipientRule(rule: Rule, email: string, worker: string) {
-  return rule.matchers?.length === 1 && rule.matchers[0].type === "literal" && ruleMatches(rule, email) && sameRule(rule, worker);
+  return literalRecipient(rule, email) && sameRule(rule, worker);
+}
+function recipientConflict(rule: Rule, email: string, worker: string) {
+  if (!ruleMatches(rule, email)) return false;
+  // A disabled catch-all or multi-address rule has no effect. Leave it untouched.
+  if (rule.enabled === false) return literalRecipient(rule, email) && !ruleId(rule);
+  return !recipientRule(rule, email, worker);
+}
+function desiredRecipientRule(plan: Plan, email: string, previous?: Rule) {
+  return {
+    name: "UnfoldMail " + plan.identity + ": " + email,
+    enabled: true,
+    matchers: [{type: "literal", field: "to", value: email}],
+    actions: [{type: "worker", value: [plan.target.workerName]}],
+    ...(previous?.priority !== undefined ? {priority: previous.priority} : {}),
+  };
+}
+function permittedRecipientUpdate(before: Rule, after: Rule, plan: Plan) {
+  return before.enabled === false && !!ruleId(before) && ruleId(before) === ruleId(after) &&
+    (plan.recipients || []).some(email => literalRecipient(before, email) &&
+      recipientRule(after, email, plan.target.workerName) &&
+      after.name === desiredRecipientRule(plan, email).name &&
+      (before.priority === undefined || before.priority === after.priority));
 }
 export async function provisionRecipientRules(cf: CloudflareSetup, plan: Plan): Promise<boolean> {
   const rules = plan.snapshot.rules;
   const recipients = plan.recipients || [];
+  const operations: {email: string; previous?: Rule}[] = [];
   for (const email of recipients) {
     if (email.length > 90 || !email.endsWith("@" + plan.domain)) throw new SetupError("Invalid subdomain recipient.");
-    if (rules.some(r => ruleMatches(r, email) && !recipientRule(r, email, plan.target.workerName)))
-      throw new SetupError("An existing mailbox routing rule conflicts. Review it in Cloudflare before continuing.");
+    if (rules.some(r => recipientConflict(r, email, plan.target.workerName)))
+      throw new SetupError("An active mailbox routing rule conflicts. Review it in Cloudflare before continuing.");
+    if (rules.some(r => recipientRule(r, email, plan.target.workerName))) continue;
+    const disabled = rules.filter(r => r.enabled === false && literalRecipient(r, email));
+    if (disabled.length) operations.push(...disabled.map(previous => ({email, previous})));
+    else operations.push({email});
   }
-  const pending = recipients.filter(email => !rules.some(r => recipientRule(r, email, plan.target.workerName)));
-  for (const email of pending.slice(0, 20)) {
-    await cf.request("/zones/" + plan.target.zoneId + "/email/routing/rules", "POST", {
-      name: "UnfoldMail " + plan.identity + ": " + email,
-      enabled: true,
-      matchers: [{type: "literal", field: "to", value: email}],
-      actions: [{type: "worker", value: [plan.target.workerName]}],
-    });
+  for (const {email, previous} of operations.slice(0, 20)) {
+    await cf.request("/zones/" + plan.target.zoneId + "/email/routing/rules" +
+      (previous ? "/" + ruleId(previous) : ""), previous ? "PUT" : "POST",
+      desiredRecipientRule(plan, email, previous));
   }
-  return pending.length <= 20;
+  return operations.length <= 20;
 }
 export async function expectedDNS(
   cf: CloudflareSetup,
@@ -532,9 +564,9 @@ export async function reconcileSetup(
     sorted(a.rules.map((r) => JSON.stringify(r))) !==
     sorted(b.rules.map((r) => JSON.stringify(r))) &&
     !(attempted === "routing" && isSubdomainPlan(after) &&
-      a.rules.every(r => b.rules.some(x => JSON.stringify(x) === JSON.stringify(r))) &&
-      b.rules.every(r => a.rules.some(x => JSON.stringify(x) === JSON.stringify(r)) ||
-        (r.name?.startsWith("UnfoldMail " + after.identity + ": ") &&
+      a.rules.every(r => b.rules.some(x => JSON.stringify(x) === JSON.stringify(r) || permittedRecipientUpdate(r, x, after))) &&
+      b.rules.every(r => a.rules.some(x => JSON.stringify(x) === JSON.stringify(r) || permittedRecipientUpdate(x, r, after)) ||
+        (!a.rules.some(x => ruleId(x) && ruleId(x) === ruleId(r)) && r.name?.startsWith("UnfoldMail " + after.identity + ": ") &&
          (after.recipients || []).some(email => recipientRule(r, email, after.target.workerName)))))
   )
     fail();

@@ -138,7 +138,11 @@ function network() {
         records.push(...mailDNS(sendingDNS));
       }
       if (p.endsWith("/routing/dns")) records.push(...mailDNS(receivingDNS));
-      if (p.endsWith("/routing/rules")) addressRules.push({...JSON.parse(String(init?.body)), id: String(addressRules.length)});
+      if (p.endsWith("/routing/rules")) addressRules.push({...JSON.parse(String(init?.body)), id: (addressRules.length + 1).toString(16).padStart(32, "0")});
+      if (method === "PUT" && /\/routing\/rules\/[a-f0-9]{32}$/.test(p)) {
+        const id = p.split("/").pop();
+        addressRules = addressRules.map(r => (r.id || r.tag) === id ? {...JSON.parse(String(init?.body)), id} : r);
+      }
       if (p.endsWith("/workers/domains"))
         domains.push(JSON.parse(String(init?.body)));
       if (loseResponse && p.endsWith(loseResponse)) {
@@ -866,6 +870,37 @@ describe("email subdomains", () => {
     expect(p.plan.blockers.join()).toContain("routing rules");
     expect((await f.call("/apply", "POST", {planId:p.id})).status).toBe(409);
     expect(writes).toEqual([]);
+    f.sqlite.close();
+  });
+  it.each([false, true])("automatically enables a disabled mailbox rule (lost response=%s)", async (lost) => {
+    const f = subFixture();
+    const id = "d".repeat(32);
+    addressRules.push({id, priority: 7, enabled: false, matchers: [{type: "literal", field: "to", value: "employee@mail.example.com"}], actions: [{type: "forward", value: ["old@example.net"]}]});
+    const disabledCatchAll = {id: "e".repeat(32), enabled: false, matchers: [{type: "all"}], actions: [{type: "drop"}]};
+    addressRules.push(disabledCatchAll);
+    const p = await start(f);
+    expect(p.plan.blockers).toEqual([]);
+    if (lost) {
+      for(let i=0;i<2;i++) expect((await f.call("/apply","POST",{planId:p.id})).status).toBe(200);
+      loseResponse = "/routing/rules/" + id;
+      expect((await f.call("/apply","POST",{planId:p.id})).status).toBe(502);
+    }
+    await finish(f,p.id);
+    expect(addressRules).toHaveLength(2);
+    expect(addressRules[0]).toMatchObject({id, priority: 7, enabled: true, actions:[{type:"worker",value:["unfoldmail"]}]});
+    expect(addressRules[1]).toEqual(disabledCatchAll);
+    expect(writes.filter(w => w === "PUT /zones/"+zoneId+"/email/routing/rules/"+id)).toHaveLength(1);
+    f.sqlite.close();
+  });
+  it("creates the mailbox route while leaving an unrelated disabled catch-all alone", async () => {
+    const f = subFixture();
+    const disabled = {id:"f".repeat(32),enabled:false,matchers:[{type:"all"}],actions:[{type:"drop"}]};
+    addressRules.push(disabled);
+    const p = await start(f);
+    expect(p.plan.blockers).toEqual([]);
+    await finish(f,p.id);
+    expect(addressRules[0]).toEqual(disabled);
+    expect(addressRules[1].enabled).toBe(true);
     f.sqlite.close();
   });
   it("resumes a lost literal-rule response without duplicate rules", async () => {

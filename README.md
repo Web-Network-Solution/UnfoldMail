@@ -77,6 +77,7 @@ catch-all rules are preserved for subdomain installations.
 
 Cloudflare supports catch-all routing only on the zone apex. For subdomains,
 UnfoldMail creates a literal routing rule for each existing mailbox during setup
+(or enables an existing disabled rule for that exact address and points it to the selected Worker)
 and provisions new mailbox rules through its every-minute scheduled job (up to
 20 rules per run). Keep an API token connected with Email Routing Rules Edit and
 Zone Read permissions; an expired OAuth credential must be reconnected. Check
