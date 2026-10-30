@@ -1,3 +1,4 @@
+import { verifiedSuperAdminSwitch } from "../services/session-switch";
 import { Hono, type Context } from 'hono';
 import { getCookie } from 'hono/cookie';
 import { bodyLimit } from 'hono/body-limit';
@@ -20,22 +21,6 @@ export async function protocolPolicy(env: Env): Promise<ProtocolPolicy> {
         value: string;
     }>();
     return { imap: false, smtp: false, pop3: false, hostname: '', ...(row ? JSON.parse(row.value) : {}) };
-}
-// Never trust a frontend impersonation flag or the backup cookie alone.
-async function verifiedSuperAdminSwitch(c: Context<App>): Promise<boolean> {
-    const original = getCookie(c, 'original_session');
-    const current = getCookie(c, 'session_token');
-    if (!original || !current) return false;
-    const parts = original.split('.');
-    if (parts.length !== 2 || !parts[0] || parts[1] !== await sessionTag(current)) return false;
-    const row = await centralDB(c.env).prepare(`
-        SELECT a.user_id FROM sessions a JOIN users admin ON admin.id=a.user_id
-        JOIN sessions target ON target.token=?
-        WHERE a.token=? AND a.expires_at>? AND target.expires_at>?
-          AND admin.role='super_admin' AND admin.must_reset_password=0
-          AND target.user_id=? AND a.user_id!=target.user_id
-    `).bind(parts[1], await sessionTag(parts[0]), nowIso(), nowIso(), c.get('userId')).first();
-    return !!row;
 }
 export const protocolSettings = new Hono<App>();
 protocolSettings.use('*', bodyLimit({ maxSize: 4096 }));

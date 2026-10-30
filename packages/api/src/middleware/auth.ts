@@ -1,3 +1,4 @@
+import { verifiedSuperAdminSwitch } from "../services/session-switch";
 import type { Context, Next } from 'hono';
 import { getCookie } from 'hono/cookie';
 import type { Env, HonoVariables } from '../types';
@@ -76,12 +77,13 @@ export async function authMiddleware(c: Ctx, next: Next) {
     return c.json({ success: false, error: 'Session expired' }, 401);
   }
 
-  const mustReset = !!session.must_reset_password;
-
   c.set('userId', session.user_id);
   c.set('userEmail', session.email);
   const role = session.role === 'super_admin' ? 'super_admin' : session.role === 'admin' ? 'admin' : 'employee';
   c.set('userRole', role);
+  // Only a live, bound super-admin switch may bypass the employee reset gate.
+  // The stored user flag is never cleared by switching.
+  const mustReset = !!session.must_reset_password && !await verifiedSuperAdminSwitch(c);
   c.set('mustResetPassword', mustReset);
   c.set('sessionExpiresAt', session.expires_at);
 

@@ -367,7 +367,7 @@ auth.get('/me', authMiddleware, async (c) => {
 
   // Mapped, not raw: /auth/login and /auth/me previously returned different
   // shapes, so the client's user object changed on every page reload.
-  return c.json({ success: true, data: mapUser(user) });
+  return c.json({ success: true, data: { ...mapUser(user), mustResetPassword: c.get("mustResetPassword") } });
 });
 
 // ─── Reset Password ───────────────────────────────────────────────
