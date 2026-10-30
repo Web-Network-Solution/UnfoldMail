@@ -198,3 +198,20 @@ support SLA. Third-party packages retain their own licenses.
 
 UnfoldMail is a free open-source project of **Web Network Solutions**.
 [Visit Web Network Solutions](https://webnetworksolution.com).
+
+
+### Moving an existing email service
+
+In **Admin → Email setup**, choose an existing-service option before reviewing:
+
+- **Keep existing settings:** stop when existing mail settings conflict (default).
+- **Move to UnfoldMail and import routing addresses:** create missing employee accounts for exact incoming addresses found in Cloudflare routing rules, including disabled rules, then route them to this Worker.
+- **Replace routing without importing addresses:** replace routing but do not create accounts. Addresses without an UnfoldMail mailbox will reject incoming mail.
+
+Migration is limited to the installation's email domain. Root-domain migration replaces the catch-all; subdomain migration leaves the parent catch-all unchanged. Exact address rules for other domains and website DNS are preserved. Rules with ambiguous matchers require separate review. Custom addresses not listed in Cloudflare must be created in **Users**; a catch-all cannot enumerate them.
+
+Review the listed addresses and DNS replacements, then type the email domain to confirm. Migration needs **Zone → DNS → Edit** in addition to the normal setup permissions. The original configuration is saved before changes and can be downloaded from the review panel after migration starts. **Discard plan** cancels an unstarted plan; it does not undo changes. A partial migration can be resumed. DNS changes can take time to reach other mail servers.
+
+Imported accounts have no usable password until an administrator sets one in **Users**. Existing users, passwords, and stored messages are preserved. Forwarding destinations are not imported as users. Old messages held by Gmail, Outlook, or another provider are not available through Cloudflare routing and are not copied by this process.
+
+After verification, Email setup becomes read-only. Select **Edit setup** and type the email domain to unlock it. Unlocking alone does not change Cloudflare settings. Test sending and receiving after completing a migration.

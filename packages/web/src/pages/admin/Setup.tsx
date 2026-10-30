@@ -7,7 +7,7 @@ type Plan = {
   plan: {
     changes: string[];
     blockers: string[];
-    target: { zoneId: string; workerName: string; webHostname: string };
+    target: { zoneId: string; workerName: string; webHostname: string; migration?: "import" | "discard" };
   };
 };
 type Status = {
@@ -47,6 +47,10 @@ export default function Setup() {
     [hostname, setHostname] = useState("");
   const [zones, setZones] = useState<{ id: string; name: string }[]>([]),
     [workers, setWorkers] = useState<{ id: string }[]>([]);
+  const [migration, setMigration] = useState<"" | "import" | "discard">("");
+  const [confirmation, setConfirmation] = useState("");
+  const [unlocking, setUnlocking] = useState(false);
+  const locked = !!status?.progress.includes("verification");
   const [oauthCode, setOauthCode] = useState("");
   const [oauthUrl, setOauthUrl] = useState("");
   useEffect(() => {
@@ -68,6 +72,7 @@ export default function Setup() {
       setZoneId(s.plan.plan.target.zoneId);
       setWorkerName(s.plan.plan.target.workerName);
       setHostname(s.plan.plan.target.webHostname);
+      setMigration(s.plan.plan.target.migration || "");
     }
     if (s.connected) {
       const z = await request<{ id: string; name: string }[]>("/zones");
@@ -117,7 +122,7 @@ export default function Setup() {
       const result = await request<{ done: boolean; progress: string[] }>(
         "/apply",
         "POST",
-        { planId: status.plan.id },
+        { planId: status.plan.id, confirmDomain: confirmation },
       );
       done = result.done;
       setStatus((s) => (s ? { ...s, progress: result.progress } : s));
@@ -135,7 +140,20 @@ export default function Setup() {
       )}
       {status?.routingStatus && <p role="status">{status.routingStatus}</p>}
       {!status && !error && <p role="status">Loading setup…</p>}
-      <fieldset disabled={busy} className="setup-section">
+      {locked && <section className="setup-section">
+        <h2>Configuration complete</h2>
+        <p>Email setup is locked. Your existing email service remains active.</p>
+        <button className="btn" onClick={() => setUnlocking(!unlocking)}>Edit setup</button>
+        {unlocking && <form onSubmit={e => {e.preventDefault(); void run(async () => {
+          await request("/unlock", "POST", {confirmDomain: confirmation});
+          setConfirmation(""); setUnlocking(false); await refresh();
+        });}}>
+          <label htmlFor="unlock-domain">Type {status?.domain} to unlock configuration</label>
+          <input id="unlock-domain" className="form-input" value={confirmation} onChange={e => setConfirmation(e.target.value)} />
+          <button className="btn" disabled={busy || confirmation !== status?.domain}>Unlock setup</button>
+        </form>}
+      </section>}
+      <fieldset disabled={busy || locked} className="setup-section">
         <legend>1. Connect Cloudflare</legend>
         <p>
           Paste an API token. It is stored encrypted in this installation and is
@@ -289,7 +307,7 @@ export default function Setup() {
         </p>
       </fieldset>
       {status?.connected && (
-        <fieldset className="setup-section" disabled={busy}>
+        <fieldset className="setup-section" disabled={busy || locked}>
           <legend>2. Choose this installation</legend>
           <form
             onSubmit={(e) => {
@@ -299,7 +317,9 @@ export default function Setup() {
                   zoneId,
                   workerName,
                   webHostname: hostname,
+                  ...(migration ? {migration} : {}),
                 });
+                setConfirmation("");
                 setStatus((s) => (s ? { ...s, plan, progress: [] } : s));
               });
             }}
@@ -352,6 +372,14 @@ export default function Setup() {
               hostname. Cloudflare must finish issuing its HTTPS certificate
               before it opens.
             </p>
+            <label htmlFor="migration-mode">Existing email service</label>
+            <select id="migration-mode" className="form-input" value={migration} onChange={e => setMigration(e.target.value as typeof migration)}>
+              <option value="">Keep existing settings (stop on conflicts)</option>
+              <option value="import">Move to UnfoldMail and import routing addresses</option>
+              <option value="discard">Replace routing without importing addresses</option>
+            </select>
+            <p>Migration replaces mail routing and conflicting mail DNS for {status.domain}. Other domains and website records stay unchanged. Import creates employee accounts from exact routing addresses, including disabled rules. Set their passwords in Users. Message history and old passwords are not imported.</p>
+            <p>Migration requires Zone → DNS → Edit permission on your API token.</p>
             <button className="btn btn-primary" type="submit">
               Review changes
             </button>
@@ -359,7 +387,7 @@ export default function Setup() {
         </fieldset>
       )}
       {status?.connected && status.plan && (
-        <fieldset className="setup-section" disabled={busy}>
+        <fieldset className="setup-section" disabled={busy || locked}>
           <legend>3. Review and apply</legend>
           <p>
             These changes apply to {status.domain}, using Worker{" "}
@@ -375,6 +403,14 @@ export default function Setup() {
               {s}
             </p>
           ))}
+          {status.plan.plan.target.migration && !locked && <>
+            <label htmlFor="migration-confirm">Type {status.domain} to confirm replacing the reviewed mail settings</label>
+            <input id="migration-confirm" className="form-input" value={confirmation} onChange={e => setConfirmation(e.target.value)} />
+          </>}
+          {!locked && !status.progress.length && <button className="btn" onClick={() => void run(async () => {
+            await request("/plan", "DELETE"); setConfirmation(""); await refresh();
+          })}>Discard plan</button>}
+          {status.plan.plan.target.migration && status.progress.length > 0 && <p><a href="/api/admin/setup/backup">Download original mail settings</a></p>}
           <p role="status">
             Completed:{" "}
             {status.progress.length
@@ -395,7 +431,7 @@ export default function Setup() {
             <button
               className="btn btn-primary"
               type="button"
-              disabled={status.plan.plan.blockers.length > 0}
+              disabled={status.plan.plan.blockers.length > 0 || (!!status.plan.plan.target.migration && confirmation !== status.domain)}
               onClick={() => void run(apply)}
             >
               {busy

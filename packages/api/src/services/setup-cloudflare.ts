@@ -179,12 +179,15 @@ export type Target = {
   zoneId: string;
   workerName: string;
   webHostname: string;
+  migration?: "import" | "discard";
 };
 export type Plan = {
   target: Target;
   domain: string;
   zoneName?: string;
   recipients?: string[];
+  importAddresses?: string[];
+  replacementDNS?: RecordRow[];
   accountId: string;
   changes: string[];
   blockers: string[];
@@ -198,13 +201,15 @@ export function validTarget(value: unknown): Target {
     !v ||
     !/^([a-f0-9]{32})$/.test(v.zoneId || "") ||
     !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,62}$/.test(v.workerName || "") ||
-    typeof v.webHostname !== "string"
+    typeof v.webHostname !== "string" ||
+    (v.migration !== undefined && v.migration !== "import" && v.migration !== "discard")
   )
     throw new SetupError("Choose a domain and Worker.");
   return {
     zoneId: v.zoneId!,
     workerName: v.workerName!,
     webHostname: v.webHostname.trim().toLowerCase(),
+    ...(v.migration ? {migration: v.migration} : {}),
   };
 }
 export async function inspectSetup(
@@ -304,7 +309,7 @@ export async function inspectSetup(
     rule.actions[0].value?.length === 1 &&
     rule.actions[0].value[0] === target.workerName;
   if (
-    records.some(
+    !target.migration && records.some(
       (r) =>
         r.type === "MX" &&
         r.name === domain &&
@@ -315,7 +320,7 @@ export async function inspectSetup(
       "An existing mail provider is configured. No MX records will be removed. Plan a migration before continuing.",
     );
   if (
-    records.some(
+    !target.migration && records.some(
       (r) =>
         r.type === "TXT" &&
         r.name === domain &&
@@ -326,11 +331,11 @@ export async function inspectSetup(
     blockers.push(
       "An existing SPF policy needs review before enabling Cloudflare mail.",
     );
-  if (!subdomain && catchAll.enabled && !sameAction(catchAll))
+  if (!target.migration && !subdomain && catchAll.enabled && !sameAction(catchAll))
     blockers.push(
       "An active catch-all rule sends mail elsewhere. It will not be overwritten.",
     );
-  if (rules.some((rule) => subdomain
+  if (!target.migration && rules.some((rule) => subdomain
     ? recipients.some(email => recipientConflict(rule, email, target.workerName))
     : rule.enabled && !sameAction(rule)))
     blockers.push(
@@ -357,7 +362,7 @@ export async function inspectSetup(
     (s) => s.name === domain && s.enabled,
   );
   if (
-    !sendingAlreadyEnabled &&
+    !target.migration && !sendingAlreadyEnabled &&
     records.some((r) =>
       [
         "cf-bounce." + domain,
@@ -369,16 +374,36 @@ export async function inspectSetup(
     blockers.push(
       "Existing sending-authentication DNS needs review before Cloudflare sending is enabled. It will not be replaced automatically.",
     );
+  const importAddresses = target.migration === "import" ? routingAddresses(rules, domain) : [];
+  if (target.migration && rules.some(r => r.enabled && !migrationAddress(r, domain) &&
+      !r.matchers?.every(m => m.type === "literal" && m.field === "to" && m.value && !m.value.toLowerCase().endsWith("@" + domain))))
+    blockers.push("A routing rule has a wildcard or multiple matchers. Review that rule separately before migrating this domain.");
+  if (target.migration && rules.some(r => migrationAddress(r, domain) && !ruleId(r)))
+    blockers.push("A routing rule has no valid identifier. Refresh Cloudflare routing before migrating.");
+  recipients = [...new Set([...recipients, ...importAddresses])].sort();
+  if (subdomain && recipients.some(r => r.length > 90) && !blockers.some(b => b.includes("90 characters")))
+    blockers.push("Cloudflare subdomain routing supports recipient addresses up to 90 characters.");
+  const replacementDNS = target.migration ? records.filter(r => replaceMailDNS(r, domain, sendingAlreadyEnabled)) : [];
+  if (replacementDNS.some(r => !/^[a-f0-9]{32}$/i.test(r.id || "")))
+    blockers.push("A conflicting DNS record has no valid identifier.");
   return {
     target,
     domain,
     zoneName: zone.name.toLowerCase(),
+    importAddresses,
+    replacementDNS,
     recipients: subdomain ? recipients : undefined,
     identity,
     snapshot: { records, catchAll, rules, domains },
     accountId,
     blockers,
     changes: [
+      ...(target.migration ? [
+        "Replace existing mail routing for " + domain + ". Previous forwarding destinations will stop receiving new mail.",
+        target.migration === "import" ? "Create missing employee mailboxes from these routing addresses: " + (importAddresses.join(", ") || "none found") + ". Existing users are unchanged. Set passwords in Users after migration." : "Do not import routing addresses. Addresses without an existing UnfoldMail mailbox will reject mail.",
+        "Replace conflicting mail DNS: " + (replacementDNS.map(r => r.type + " " + r.name + " = " + r.content).join("; ") || "none") + ". Requires DNS Edit permission.",
+        "Save the original configuration before applying. Old email messages and passwords are not imported.",
+      ] : []),
       "Enable Cloudflare sending and its authentication DNS records.",
       "Enable incoming mail DNS records.",
       ...(subdomain ? [
@@ -400,6 +425,29 @@ export async function inspectSetup(
       }),
     ),
   };
+}
+export function migrationAddress(rule: Rule, domain: string): string | undefined {
+  if (rule.matchers?.length !== 1) return;
+  const m = rule.matchers[0];
+  const email = m.value?.toLowerCase();
+  if (m.type === "literal" && m.field === "to" && email &&
+      /^[a-z0-9.!#$%&'+/=?^_`{|}~-]+@[^@]+$/i.test(email) && email.endsWith("@" + domain) && email.length <= 254)
+    return email;
+}
+export function routingAddresses(rules: Rule[], domain: string): string[] {
+  return [...new Set(rules.map(r => migrationAddress(r, domain)).filter((v): v is string => !!v))].sort();
+}
+function replaceMailDNS(r: RecordRow, domain: string, sendingEnabled: boolean) {
+  const name = dnsName(r.name, domain);
+  return (name === domain && ((r.type === "MX" && !/^route[0-9]+\.mx\.cloudflare\.net\.?$/i.test(r.content)) ||
+    (r.type === "TXT" && dnsContent(r).startsWith("v=spf1") && !r.content.includes("include:_spf.mx.cloudflare.net")))) ||
+    (!sendingEnabled && ["cf-bounce." + domain, "cf-bounce._domainkey." + domain, "_dmarc." + domain].includes(name) && ["TXT", "CNAME", "MX"].includes(r.type));
+}
+function migrationRuleUpdate(before: Rule, after: Rule, plan: Plan) {
+  const email = migrationAddress(before, plan.domain);
+  return !!plan.target.migration && !!email && !!ruleId(before) && ruleId(before) === ruleId(after) &&
+    JSON.stringify(after.matchers) === JSON.stringify(before.matchers) &&
+    after.name === before.name && after.priority === before.priority && sameRule(after, plan.target.workerName);
 }
 function dnsName(name: string, domain: string) {
   return name === "@" ? domain : name.toLowerCase().replace(/\.$/, "");
@@ -565,9 +613,9 @@ export async function reconcileSetup(
   if (
     sorted(a.rules.map((r) => JSON.stringify(r))) !==
     sorted(b.rules.map((r) => JSON.stringify(r))) &&
-    !(attempted === "routing" && isSubdomainPlan(after) &&
-      a.rules.every(r => b.rules.some(x => JSON.stringify(x) === JSON.stringify(r) || permittedRecipientUpdate(r, x, after))) &&
-      b.rules.every(r => a.rules.some(x => JSON.stringify(x) === JSON.stringify(r) || permittedRecipientUpdate(x, r, after)) ||
+    !(attempted === "routing" && (isSubdomainPlan(after) || after.target.migration) &&
+      a.rules.every(r => b.rules.some(x => JSON.stringify(x) === JSON.stringify(r) || (permittedRecipientUpdate(r, x, after) || migrationRuleUpdate(r, x, after)))) &&
+      b.rules.every(r => a.rules.some(x => JSON.stringify(x) === JSON.stringify(r) || (permittedRecipientUpdate(x, r, after) || migrationRuleUpdate(x, r, after))) ||
         (!a.rules.some(x => ruleId(x) && ruleId(x) === ruleId(r)) && r.name?.startsWith("UnfoldMail " + after.identity + ": ") &&
          (after.recipients || []).some(email => recipientRule(r, email, after.target.workerName)))))
   )
@@ -604,7 +652,7 @@ export async function reconcileSetup(
       (e) => recordKey(e, after.domain) === recordKey(r, after.domain),
     );
   // Existing records cannot disappear or be silently replaced, even during retry.
-  if (!hasRecords(b.records, a.records, after.domain)) fail();
+  if (!hasRecords(b.records, a.records.filter(r => !(attempted === "migration" && before.target.migration && before.replacementDNS?.some(x => x.id === r.id))), after.domain)) fail();
   for (const r of b.records) {
     if (
       a.records.some(
@@ -701,6 +749,15 @@ export async function performSetupStep(
 ) {
   const zone = "/zones/" + plan.target.zoneId;
   switch (step) {
+    case "migration": {
+      if (!plan.target.migration) throw new SetupError("Migration was not reviewed.");
+      const removals = plan.replacementDNS || [];
+      for (const record of removals.slice(0, 20)) {
+        if (!/^[a-f0-9]{32}$/i.test(record.id || "")) throw new SetupError("Invalid DNS record identifier.");
+        await cf.request(zone + "/dns_records/" + record.id, "DELETE");
+      }
+      return removals.length <= 20;
+    }
     case "sending": {
       const senders = await cf.list<{ name: string; enabled: boolean }>(
         zone + "/email/sending/subdomains",
@@ -726,6 +783,17 @@ export async function performSetupStep(
       });
       break;
     case "routing":
+      if (plan.target.migration) {
+        const replacements = plan.snapshot.rules.filter(r => migrationAddress(r, plan.domain) && !sameRule(r, plan.target.workerName));
+        for (const r of replacements.slice(0, 20)) {
+          if (!ruleId(r)) throw new SetupError("Invalid routing rule identifier.");
+          await cf.request(zone + "/email/routing/rules/" + ruleId(r), "PUT", {
+            name: r.name, priority: r.priority, matchers: r.matchers, enabled: true,
+            actions: [{type: "worker", value: [plan.target.workerName]}],
+          });
+        }
+        if (replacements.length) return false;
+      }
       if (isSubdomainPlan(plan)) return provisionRecipientRules(cf, plan);
       if (sameRule(plan.snapshot.catchAll, plan.target.workerName)) break;
       await cf.request(zone + "/email/routing/rules/catch_all", "PUT", {
@@ -764,6 +832,8 @@ export async function performSetupStep(
       const routingReady = subdomain
         ? (plan.recipients || []).every(email => plan.snapshot.rules.some(r => recipientRule(r, email, plan.target.workerName)))
         : sameRule(await cf.get<Rule>(zone + "/email/routing/rules/catch_all"), plan.target.workerName);
+      if (plan.target.migration && plan.snapshot.rules.some(r => migrationAddress(r, plan.domain) && !sameRule(r, plan.target.workerName)))
+        throw new SetupError("Mailbox routing has not finished migrating.");
       if (
         !sending.some((s) => s.name === plan.domain && s.enabled) ||
         !receiving.enabled ||

@@ -19,6 +19,7 @@ import {
   domainInZone,
   matchingZones,
   expectedDNS,
+  routingAddresses,
 } from "../src/services/setup-cloudflare";
 import { broker, type BrokerEnv } from "../src/setup-service";
 import type { Env, HonoVariables } from "../src/types";
@@ -132,6 +133,7 @@ function network() {
       writes.push(method + " " + p);
       if (p.endsWith("/catch_all") && failRouting)
         return new Response("", { status: 503 });
+      if (method === "DELETE" && /\/dns_records\/[a-f0-9]{32}$/.test(p)) records = records.filter(r => r.id !== p.split("/").pop());
       if (p.endsWith("/catch_all")) rule = JSON.parse(String(init?.body));
       if (p.endsWith("/subdomains")) {
         sendingEnabled = true;
@@ -951,6 +953,87 @@ describe("email subdomains", () => {
     const original = network();
     vi.stubGlobal("fetch", vi.fn(async(input: RequestInfo | URL, init?: RequestInit) => String(input).includes("/routing/dns") ? Response.json({success:true,result:receivingDNS}) : original(input,init)));
     await expect(expectedDNS(new CloudflareSetup(token), p.plan, "receiving")).rejects.toThrow("DNS requirements");
+    f.sqlite.close();
+  });
+});
+
+
+describe("explicit mail migration", () => {
+  const target = {zoneId, workerName: "unfoldmail", webHostname: "", migration: "import" as const};
+  function oldRule(email = "sales@example.com", id = "d".repeat(32)) {
+    return {id, name: "Old forwarding", priority: 10, enabled: true, matchers: [{type:"literal",field:"to",value:email}], actions:[{type:"forward",value:["owner@elsewhere.com"]}]};
+  }
+  async function prepare(migration: "import" | "discard" = "import") {
+    const f = fixture();
+    f.env.MAILBOXES = {idFromName: (s: string) => s, get: () => ({provision: async (id: string) => {
+      f.sqlite.prepare("UPDATE mailbox_routes SET state='active',provision_new=0 WHERE user_id=?").run(id);
+    }})} as unknown as Env["MAILBOXES"];
+    identity = await setupIdentity(f.env);
+    await f.call("/token", "POST", {token});
+    addressRules = [oldRule(), oldRule("person@other.example.com", "e".repeat(32))];
+    rule = {enabled: true, matchers:[{type:"all"}], actions:[{type:"forward",value:["owner@elsewhere.com"]}]};
+    records = [{id: "f".repeat(32), type:"MX",name:"example.com",content:"old.provider.com",priority:10},
+      {id: "9".repeat(32),type:"TXT",name:"_dmarc.example.com",content:"v=DMARC1; p=reject"},
+      {id:"8".repeat(32),type:"A",name:"example.com",content:"192.0.2.1"}];
+    const res = await f.call("/plan", "POST", {...target, migration});
+    expect(res.status).toBe(200);
+    const p = (await res.json() as any).data;
+    expect(p.plan.blockers).toEqual([]);
+    return {...f, p};
+  }
+  it("discovers source addresses, never forwarding destinations or wildcard addresses", () => {
+    expect(routingAddresses([oldRule(), oldRule(), oldRule("a@other.example.com"), {matchers:[{type:"all"}]}], "example.com")).toEqual(["sales@example.com"]);
+  });
+  it("requires explicit confirmation and supports discarding an unstarted plan", async () => {
+    const f = await prepare();
+    expect((await f.call("/apply","POST",{planId:f.p.id})).status).toBe(409);
+    expect(writes).toEqual([]);
+    expect((await f.call("/plan","DELETE")).status).toBe(200);
+    expect((await f.call("/apply","POST",{planId:f.p.id,confirmDomain:"example.com"})).status).toBe(409);
+    f.sqlite.close();
+  });
+  it("migrates with backup, imports employee mailboxes, preserves unrelated routes and locks after verification", async () => {
+    const f = await prepare();
+    let done = false;
+    for (let i=0;i<12 && !done;i++) {
+      const res = await f.call("/apply","POST",{planId:f.p.id,confirmDomain:"example.com"});
+      const json = await res.json() as any;
+      expect(json.error).toBeUndefined();
+      done = json.data.done;
+    }
+    expect(done).toBe(true);
+    const user = f.sqlite.prepare("SELECT * FROM users WHERE email='sales@example.com'").get() as any;
+    expect(user.role).toBe("employee");
+    expect(user.must_reset_password).toBe(1);
+    expect(user.password_hash).toBe("imported-account-login-disabled");
+    expect(addressRules[0].actions).toEqual([{type:"worker",value:["unfoldmail"]}]);
+    expect(addressRules[1]).toEqual(oldRule("person@other.example.com","e".repeat(32)));
+    expect(records.some(r=>r.type==="A" && r.name==="example.com")).toBe(true);
+    const backup = await f.call("/backup");
+    expect((await backup.json() as any).plan.snapshot.records.some((r: any)=>r.content==="old.provider.com")).toBe(true);
+    for (const [path,method,body] of [["/plan","POST",target],["/token","POST",{token}],["/connection","DELETE",undefined]] as const)
+      expect((await f.call(path,method,body)).status).toBe(409);
+    expect((await f.call("/unlock","POST",{confirmDomain:"wrong.com"})).status).toBe(400);
+    expect((await f.call("/unlock","POST",{confirmDomain:"example.com"})).status).toBe(200);
+    f.sqlite.close();
+  });
+  it("resumes a lost DNS delete response without touching unrelated DNS", async () => {
+    const f = await prepare("discard");
+    loseResponse = "/dns_records/" + "f".repeat(32);
+    const apply = () => f.call("/apply","POST",{planId:f.p.id,confirmDomain:"example.com"});
+    expect((await apply()).status).toBe(502);
+    expect((await apply()).status).toBe(200);
+    expect(f.sqlite.prepare("SELECT id FROM users WHERE email='sales@example.com'").get()).toBeUndefined();
+    expect(writes.filter(w=>w.endsWith("f".repeat(32)))).toHaveLength(1);
+    expect((await f.call("/plan","DELETE")).status).toBe(409);
+    f.sqlite.close();
+  });
+  it("rejects unrelated concurrent DNS changes during migration", async () => {
+    const f = await prepare("discard");
+    loseResponse = "/dns_records/" + "f".repeat(32);
+    await f.call("/apply","POST",{planId:f.p.id,confirmDomain:"example.com"});
+    records = records.filter(r=>r.type!=="A");
+    expect((await f.call("/apply","POST",{planId:f.p.id,confirmDomain:"example.com"})).status).toBe(409);
     f.sqlite.close();
   });
 });
