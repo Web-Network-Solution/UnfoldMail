@@ -57,8 +57,8 @@ needs end-to-end verification before this template is declared a stable release.
    method. Create a token scoped to your account/domain using the instructions in
    the wizard. Select this installation's Worker, optionally enter an unused
    webmail hostname, review the changes, and apply them.
-9. The wizard enables Email Sending, configures incoming-mail DNS and the catch-all
-   Worker rule, optionally attaches the webmail hostname, and checks configuration.
+9. The wizard enables Email Sending, configures incoming-mail DNS and the required
+   Worker routing rules, optionally attaches the webmail hostname, and checks configuration.
    A failed step can be resumed. Setup records each attempt before changing
    Cloudflare and reconciles committed changes after a lost response. Unrelated
    DNS changes still require a new review. Completion requires the expected mail
@@ -67,11 +67,29 @@ needs end-to-end verification before this template is declared a stable release.
    require waiting and selecting Resume setup. It stops if an existing mail provider or conflicting
    routing/hostname configuration requires a migration decision.
 10. Create an employee account. Test an incoming message, an outgoing message to
-    an external mailbox, and an attachment before inviting your team. Then remove
-    the saved setup credential if you do not need further setup operations.
+    an external mailbox, and an attachment before inviting your team. For subdomain email, keep the API token connected for automatic mailbox routing.
 
-The wizard currently supports an active **root domain matching `EMAIL_DOMAIN`**.
-Subdomain mail, moving existing providers, registrar nameserver changes, billing,
+The wizard supports a root domain or an email subdomain in an active Cloudflare
+zone. For `EMAIL_DOMAIN=mail.example.com`, scope the token to `example.com`;
+addresses remain `name@mail.example.com`. A webmail hostname such as
+`email.example.com` can be used in the same zone. Parent-domain MX records and
+catch-all rules are preserved for subdomain installations.
+
+Cloudflare supports catch-all routing only on the zone apex. For subdomains,
+UnfoldMail creates a literal routing rule for each existing mailbox during setup
+and provisions new mailbox rules through its every-minute scheduled job (up to
+20 rules per run). Keep an API token connected with Email Routing Rules Edit and
+Zone Read permissions; an expired OAuth credential must be reconnected. Check
+**Email setup** for the last routing status before using a new mailbox. Deleted
+mailbox rules are retained in Cloudflare; remove unused rules there to reclaim
+capacity. They do not restore deleted UnfoldMail users or their mail.
+Cloudflare's default limit is 200 routing rules per domain, and recipient
+addresses for literal rules are limited to 90 characters. Larger subdomain teams
+must request a routing limit increase from Cloudflare. See
+[Cloudflare subdomains](https://developers.cloudflare.com/email-service/configuration/subdomains/)
+and [limits](https://developers.cloudflare.com/email-service/platform/limits/).
+
+Moving existing providers, registrar nameserver changes, billing,
 and Email Service eligibility still require account-owner action. An account's
 Pro plan alone does not establish Email Sending eligibility. DNS and HTTPS
 certificates may take time to become ready. Configuration completion is not proof

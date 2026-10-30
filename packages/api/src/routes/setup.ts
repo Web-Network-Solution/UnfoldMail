@@ -4,6 +4,9 @@ import { bodyLimit } from "hono/body-limit";
 import type { Env, HonoVariables } from "../types";
 import {
   CloudflareSetup,
+  domainInZone,
+  matchingZones,
+  isSubdomainPlan,
   SetupError,
   boundedJSON,
   inspectSetup,
@@ -33,6 +36,10 @@ type StoredPlan = {
   plan: Plan;
   attemptedStep?: string;
 };
+async function setupRecipients(env: Env) {
+  const rows = await env.DB.prepare("SELECT email FROM users ORDER BY email").all<{email: string}>();
+  return rows.results.map(r => r.email);
+}
 const routes = new Hono<{ Bindings: Env; Variables: HonoVariables }>();
 routes.use("*", async (c, next) => {
   c.header("Cache-Control", "no-store");
@@ -60,7 +67,7 @@ routes.onError((e, c) =>
     (e instanceof SetupError ? e.status : 500) as 400,
   ),
 );
-async function client(env: Env) {
+export async function client(env: Env) {
   const row = await setupState(env);
   if (!row.credential)
     throw new SetupError("Connect your Cloudflare account first.");
@@ -81,10 +88,10 @@ async function saveToken(
   const cf = new CloudflareSetup(token);
   const zones = await cf.list<Zone>("/zones");
   if (
-    !zones.some((z) => z.name.toLowerCase() === env.EMAIL_DOMAIN.toLowerCase())
+    !matchingZones(zones, env.EMAIL_DOMAIN).length
   )
     throw new SetupError(
-      "This token cannot access the EMAIL_DOMAIN configured for this installation.",
+      "This token cannot access the Cloudflare zone containing EMAIL_DOMAIN. For mail.example.com, grant Zone Read access to example.com.",
     );
   const encrypted = await sealSetup(setupKey(env), token, "cloudflare-token");
   await env.DB.prepare(
@@ -98,6 +105,7 @@ routes.get("/", async (c) => {
   return c.json({
     success: true,
     data: {
+      routingStatus: (await c.env.DB.prepare("SELECT value FROM settings WHERE key='setup_routing_status'").first<{value: string}>())?.value || null,
       connected:
         !!row.credential && (!row.expires_at || row.expires_at > Date.now()),
       method: row.method,
@@ -131,8 +139,7 @@ routes.get("/zones", async (c) => {
   const zones = await cf.list<Zone>("/zones");
   return c.json({
     success: true,
-    data: zones
-      .filter((z) => z.name.toLowerCase() === c.env.EMAIL_DOMAIN.toLowerCase())
+    data: matchingZones(zones, c.env.EMAIL_DOMAIN)
       .map((z) => ({ id: z.id, name: z.name })),
   });
 });
@@ -141,7 +148,7 @@ routes.get("/workers", async (c) => {
   if (!/^[a-f0-9]{32}$/.test(zoneId)) throw new SetupError("Select a domain.");
   const cf = await client(c.env);
   const zone = await cf.get<Zone>("/zones/" + zoneId);
-  if (zone.name !== c.env.EMAIL_DOMAIN)
+  if (!domainInZone(c.env.EMAIL_DOMAIN, zone.name))
     throw new SetupError("Choose the installation domain.");
   const workers = await cf.list<{ id: string }>(
     "/accounts/" + zone.account.id + "/workers/scripts",
@@ -157,6 +164,7 @@ routes.post("/plan", (c) =>
       target,
       c.env.EMAIL_DOMAIN,
       await setupIdentity(c.env),
+      await setupRecipients(c.env),
     );
     const stored: StoredPlan = {
       id: randomSetupSecret(),
@@ -195,6 +203,7 @@ routes.post("/apply", (c) =>
       stored.plan.target,
       c.env.EMAIL_DOMAIN,
       await setupIdentity(c.env),
+      await setupRecipients(c.env),
     );
     if (fresh.blockers.length)
       throw new SetupError(fresh.blockers.join(" "), 409);
@@ -213,13 +222,20 @@ routes.post("/apply", (c) =>
     await c.env.DB.prepare("UPDATE setup_state SET plan=? WHERE id=1")
       .bind(JSON.stringify(stored))
       .run();
-    await performSetupStep(cf, fresh, step);
+    const complete = await performSetupStep(cf, fresh, step);
+    if (complete === false) return c.json({success: true, data: {done: false, progress}});
     if (step === "hostname" && fresh.target.webHostname)
       await c.env.DB.prepare(
         "INSERT INTO settings(key,value) VALUES('setup_web_origin',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
       )
         .bind("https://" + fresh.target.webHostname)
         .run();
+    if (step === "verification" && isSubdomainPlan(fresh)) {
+      await c.env.DB.prepare("INSERT INTO settings(key,value) VALUES('setup_routing_target',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
+        .bind(JSON.stringify({target: fresh.target, domain: fresh.domain, zoneName: fresh.zoneName, identity: fresh.identity})).run();
+    }
+    if (step === "hostname" && fresh.target.webHostname && fresh.zoneName)
+      await c.env.DB.prepare("INSERT INTO settings(key,value) VALUES('setup_web_zone',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(fresh.zoneName).run();
     progress.push(step);
     await c.env.DB.prepare("UPDATE setup_state SET progress=? WHERE id=1")
       .bind(JSON.stringify(progress))

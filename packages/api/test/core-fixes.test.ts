@@ -333,7 +333,7 @@ describe('queue maintenance republication', () => {
 
 describe('scheduled isolation', () => {
   it.each([
-    ['* * * * *', ['mailbox_deletions', 'mailbox_routes', 'calendar_deliveries']],
+    ['* * * * *', ['mailbox_deletions', 'mailbox_routes', 'calendar_deliveries', 'setup_routing_target']],
     ['*/15 * * * *', ['mailbox_forwarding_snapshots']],
   ])('keeps running later steps after one fails (%s)', async (cron, tables) => {
     const seen: string[] = [];
@@ -344,7 +344,7 @@ describe('scheduled isolation', () => {
     } as unknown as Env;
     await worker.scheduled({ cron } as ScheduledController, env, {} as ExecutionContext);
     for (const table of tables) expect(seen.some(sql => sql.includes(table)), table).toBe(true);
-    expect(error).toHaveBeenCalledTimes(tables.length === 1 ? 2 : 3);
+    expect(error).toHaveBeenCalledTimes(tables.length === 1 ? 2 : 4);
   });
 });
 

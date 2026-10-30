@@ -1,6 +1,6 @@
 import type { Env } from "../types";
 import { randomSetupSecret } from "./setup-crypto";
-import { SetupError } from "./setup-cloudflare";
+import { domainInZone, SetupError } from "./setup-cloudflare";
 export type SetupState = {
   credential: string | null;
   method: string | null;
@@ -79,7 +79,9 @@ export async function setupBrowserEnv(env: Env): Promise<Env> {
   ).first<{ value: string }>();
   if (!row) return env;
   const u = new URL(row.value);
-  if (u.protocol !== "https:" || !u.hostname.endsWith("." + env.EMAIL_DOMAIN))
+  const zone = await env.DB.prepare("SELECT value FROM settings WHERE key='setup_web_zone'").first<{value: string}>();
+  const base = zone?.value || env.EMAIL_DOMAIN;
+  if (!domainInZone(env.EMAIL_DOMAIN, base) || u.protocol !== "https:" || !u.hostname.endsWith("." + base))
     return env;
   return {
     ...env,

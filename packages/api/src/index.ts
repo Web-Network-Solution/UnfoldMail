@@ -1,3 +1,4 @@
+import { syncSubdomainRouting } from "./services/setup-routing";
 import setupRoutes from './routes/setup';
 import { setupIdentity, setupBrowserEnv } from './services/setup-state';
 import {protocolGateway,protocolSettings,protocolAdmin} from './routes/protocol';
@@ -343,7 +344,7 @@ export default {
     // Awaited, not ctx.waitUntil'd, and in order. Each step is isolated so one
     // failure is logged without skipping the steps after it.
     const steps = _event.cron === '* * * * *'
-      ? [cleanupDeletedMailboxes, provisionMailboxes, dispatchCalendar]
+      ? [cleanupDeletedMailboxes, provisionMailboxes, dispatchCalendar, syncSubdomainRouting]
       : [runCentralCleanup, cleanupForwardingSnapshots];
     for (const step of steps) {
       try { await step(env); }

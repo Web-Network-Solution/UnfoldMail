@@ -9,6 +9,7 @@ import {
 } from "../services/setup-crypto";
 import {
   CloudflareSetup,
+  matchingZones,
   type Zone,
   boundedJSON,
 } from "../services/setup-cloudflare";
@@ -217,12 +218,8 @@ broker.get("/callback", async (c) => {
     return c.text("Cloudflare returned an unsupported credential.", 502);
   // Resolve ownership using the authorized account, never by fetching a caller's URL.
   const cf = new CloudflareSetup(grant.access_token);
-  const zones = await cf.list<Zone>(
-    "/zones?name=" + encodeURIComponent(flow.email_domain),
-  );
-  const zone = zones.find(
-    (z) => z.name === flow.email_domain && z.status === "active",
-  );
+  const zones = await cf.list<Zone>("/zones");
+  const zone = matchingZones(zones, flow.email_domain).find(z => z.status === "active");
   if (!zone || !/^[a-f0-9]{32}$/.test(zone.account.id))
     return c.text(
       "The installation domain is not in the authorized account.",

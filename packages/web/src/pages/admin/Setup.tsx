@@ -11,6 +11,7 @@ type Plan = {
   };
 };
 type Status = {
+  routingStatus?: string | null;
   connected: boolean;
   method: string | null;
   domain: string;
@@ -132,6 +133,7 @@ export default function Setup() {
           {error}
         </div>
       )}
+      {status?.routingStatus && <p role="status">{status.routingStatus}</p>}
       {!status && !error && <p role="status">Loading setup…</p>}
       <fieldset disabled={busy} className="setup-section">
         <legend>1. Connect Cloudflare</legend>
@@ -183,7 +185,7 @@ export default function Setup() {
               and select Create Token → Create Custom Token.
             </li>
             <li>
-              Limit it to the account and domain used by this installation.
+              Limit it to the account and Cloudflare zone used by this installation. For mail.example.com, select example.com.
             </li>
             <li>
               Allow Zone Read, DNS Read, Zone Settings Edit, Email Routing Rules
@@ -282,7 +284,7 @@ export default function Setup() {
           </p>
         )}
         <p className="setup-note">
-          Removing the credential keeps your email configuration. Revoke the
+          Removing the credential keeps existing email configuration but stops automatic provisioning of new subdomain mailboxes. Revoke the
           token in Cloudflare if you no longer need it.
         </p>
       </fieldset>
@@ -346,7 +348,7 @@ export default function Setup() {
               placeholder={"mail." + status.domain}
             />
             <p>
-              Leave blank to keep the current web address. Use an unused
+              Leave blank to keep the current web address. The hostname can be a sibling of the email subdomain within the selected zone. Use an unused
               hostname. Cloudflare must finish issuing its HTTPS certificate
               before it opens.
             </p>
@@ -387,7 +389,7 @@ export default function Setup() {
                 then reply to verify incoming mail. Configuration checks do not
                 prove message delivery.
               </p>
-              <p>You can now remove the stored setup credential above.</p>
+              <p>For subdomain email, keep an API token connected so new mailbox routing rules can be provisioned automatically. OAuth credentials expire and must be reconnected. Existing routes remain if you disconnect.</p>
             </>
           ) : (
             <button

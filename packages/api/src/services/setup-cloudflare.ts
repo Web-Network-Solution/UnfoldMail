@@ -134,6 +134,17 @@ export class CloudflareSetup {
     }
   }
 }
+export function domainInZone(domain: string, zone: string): boolean {
+  const valid = (s: string) => s.length <= 253 && s.split(".").length >= 2 &&
+    s.split(".").every(x => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(x));
+  return valid(domain) && valid(zone) && (domain.toLowerCase() === zone.toLowerCase() ||
+    domain.toLowerCase().endsWith("." + zone.toLowerCase()));
+}
+export function matchingZones(zones: Zone[], domain: string): Zone[] {
+  const matches = zones.filter(z => domainInZone(domain, z.name));
+  const longest = Math.max(0, ...matches.map(z => z.name.length));
+  return matches.filter(z => z.name.length === longest);
+}
 export type Zone = {
   id: string;
   name: string;
@@ -155,7 +166,10 @@ type Snapshot = {
   rules: Rule[];
   domains: DomainRow[];
 };
-type Rule = {
+export type Rule = {
+  id?: string;
+  name?: string;
+  matchers?: {type: string; field?: string; value?: string}[];
   enabled?: boolean;
   actions?: { type: string; value?: string[] }[];
 };
@@ -167,6 +181,8 @@ export type Target = {
 export type Plan = {
   target: Target;
   domain: string;
+  zoneName?: string;
+  recipients?: string[];
   accountId: string;
   changes: string[];
   blockers: string[];
@@ -194,25 +210,29 @@ export async function inspectSetup(
   target: Target,
   domain: string,
   identity: string,
+  recipients: string[] = [],
 ): Promise<Plan> {
   const zone = await cf.get<Zone>("/zones/" + target.zoneId);
   if (zone.status !== "active")
     throw new SetupError(
       "This domain is not active on Cloudflare. Complete its nameserver setup first.",
     );
-  if (zone.name.toLowerCase() !== domain.toLowerCase())
+  domain = domain.toLowerCase();
+  if (!domainInZone(domain, zone.name))
     throw new SetupError(
-      "Automatic setup currently requires the selected root domain to match EMAIL_DOMAIN. Subdomain mail needs separate routing configuration.",
+      "Select the Cloudflare zone containing EMAIL_DOMAIN.",
     );
   if (
     target.webHostname &&
-    (!target.webHostname.endsWith("." + domain) ||
+    (!target.webHostname.endsWith("." + zone.name.toLowerCase()) ||
       !target.webHostname
         .split(".")
         .every((x) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(x)) ||
       target.webHostname.length > 253)
   )
-    throw new SetupError("Use a webmail hostname within your email domain.");
+    throw new SetupError("Use a webmail hostname within the selected Cloudflare zone.");
+  const subdomain = domain !== zone.name.toLowerCase();
+  recipients = [...new Set(recipients.map(r => r.toLowerCase()))].filter(r => r.endsWith("@" + domain)).sort();
   const accountId = zone.account.id;
   if (!/^[a-f0-9]{32}$/.test(accountId))
     throw new SetupError("Invalid Cloudflare account response.", 502);
@@ -302,14 +322,20 @@ export async function inspectSetup(
     blockers.push(
       "An existing SPF policy needs review before enabling Cloudflare mail.",
     );
-  if (catchAll.enabled && !sameAction(catchAll))
+  if (!subdomain && catchAll.enabled && !sameAction(catchAll))
     blockers.push(
       "An active catch-all rule sends mail elsewhere. It will not be overwritten.",
     );
-  if (rules.some((rule) => rule.enabled && !sameAction(rule)))
+  if (rules.some((rule) => subdomain
+    ? recipients.some(email => ruleMatches(rule, email) && !recipientRule(rule, email, target.workerName))
+    : rule.enabled && !sameAction(rule)))
     blockers.push(
       "Existing address-specific routing rules need review. They will not be overwritten.",
     );
+  if (subdomain && recipients.some(r => r.length > 90))
+    blockers.push("Cloudflare subdomain routing supports recipient addresses up to 90 characters.");
+  if (subdomain && records.some(r => r.type === "NS" && domainInZone(domain, r.name) && r.name !== zone.name))
+    blockers.push("The email subdomain is delegated to other nameservers. Select its authoritative Cloudflare zone.");
   if (target.webHostname) {
     const current = domains.find((d) => d.hostname === target.webHostname);
     if (current && current.service !== target.workerName)
@@ -342,6 +368,8 @@ export async function inspectSetup(
   return {
     target,
     domain,
+    zoneName: zone.name.toLowerCase(),
+    recipients: subdomain ? recipients : undefined,
     identity,
     snapshot: { records, catchAll, rules, domains },
     accountId,
@@ -349,7 +377,10 @@ export async function inspectSetup(
     changes: [
       "Enable Cloudflare sending and its authentication DNS records.",
       "Enable incoming mail DNS records.",
-      "Route unmatched incoming addresses to this UnfoldMail Worker.",
+      ...(subdomain ? [
+        "Create individual incoming-mail rules for " + recipients.length + " existing mailboxes on " + domain + ". Parent-domain routing stays unchanged.",
+        "Keep the API token connected: new mailbox rules are provisioned automatically by the scheduled job. Cloudflare routing-rule limits apply.",
+      ] : ["Route unmatched incoming addresses to this UnfoldMail Worker."]),
       ...(target.webHostname
         ? ["Attach " + target.webHostname + " to the Worker."]
         : []),
@@ -357,6 +388,7 @@ export async function inspectSetup(
     digest: await setupHash(
       JSON.stringify({
         target,
+        recipients: subdomain ? recipients : undefined,
         records: records.sort((a, b) => (a.id || "").localeCompare(b.id || "")),
         catchAll,
         rules: rules.map((r) => JSON.stringify(r)).sort(),
@@ -382,7 +414,7 @@ function recordKey(r: RecordRow, domain: string) {
     !!r.proxied,
   ]);
 }
-function sameRule(rule: Rule, worker: string) {
+export function sameRule(rule: Rule, worker: string) {
   return (
     rule.enabled === true &&
     rule.actions?.length === 1 &&
@@ -391,13 +423,41 @@ function sameRule(rule: Rule, worker: string) {
     rule.actions[0].value[0] === worker
   );
 }
+export function isSubdomainPlan(plan: Plan) {
+  return !!plan.zoneName && plan.domain !== plan.zoneName;
+}
+export function ruleMatches(rule: Rule, email: string) {
+  return rule.matchers?.some(m => m.type === "all" || (m.type === "literal" && m.field === "to" && m.value?.toLowerCase() === email)) || false;
+}
+export function recipientRule(rule: Rule, email: string, worker: string) {
+  return rule.matchers?.length === 1 && rule.matchers[0].type === "literal" && ruleMatches(rule, email) && sameRule(rule, worker);
+}
+export async function provisionRecipientRules(cf: CloudflareSetup, plan: Plan): Promise<boolean> {
+  const rules = plan.snapshot.rules;
+  const recipients = plan.recipients || [];
+  for (const email of recipients) {
+    if (email.length > 90 || !email.endsWith("@" + plan.domain)) throw new SetupError("Invalid subdomain recipient.");
+    if (rules.some(r => ruleMatches(r, email) && !recipientRule(r, email, plan.target.workerName)))
+      throw new SetupError("An existing mailbox routing rule conflicts. Review it in Cloudflare before continuing.");
+  }
+  const pending = recipients.filter(email => !rules.some(r => recipientRule(r, email, plan.target.workerName)));
+  for (const email of pending.slice(0, 20)) {
+    await cf.request("/zones/" + plan.target.zoneId + "/email/routing/rules", "POST", {
+      name: "UnfoldMail " + plan.identity + ": " + email,
+      enabled: true,
+      matchers: [{type: "literal", field: "to", value: email}],
+      actions: [{type: "worker", value: [plan.target.workerName]}],
+    });
+  }
+  return pending.length <= 20;
+}
 export async function expectedDNS(
   cf: CloudflareSetup,
   plan: Plan,
   kind: "sending" | "receiving",
 ): Promise<RecordRow[]> {
   const zone = "/zones/" + plan.target.zoneId;
-  let path = zone + "/email/routing/dns";
+  let path = zone + "/email/routing/dns" + (isSubdomainPlan(plan) ? "?subdomain=" + encodeURIComponent(plan.domain) : "");
   if (kind === "sending") {
     const senders = await cf.list<{
       name: string;
@@ -411,7 +471,8 @@ export async function expectedDNS(
       );
     path = zone + "/email/sending/subdomains/" + sender.tag + "/dns";
   }
-  const rows = await cf.get<RecordRow[]>(path);
+  const result = await cf.get<RecordRow[] | {records: RecordRow[]}>(path);
+  const rows = Array.isArray(result) ? result : result?.records;
   if (
     !Array.isArray(rows) ||
     !rows.length ||
@@ -454,7 +515,8 @@ export async function reconcileSetup(
     !before.snapshot ||
     before.accountId !== after.accountId ||
     before.domain !== after.domain ||
-    JSON.stringify(before.target) !== JSON.stringify(after.target)
+    JSON.stringify(before.target) !== JSON.stringify(after.target) ||
+    JSON.stringify(before.recipients) !== JSON.stringify(after.recipients)
   )
     throw new SetupError("Review a new setup plan after upgrading.", 409);
   const a = before.snapshot,
@@ -468,12 +530,17 @@ export async function reconcileSetup(
   };
   if (
     sorted(a.rules.map((r) => JSON.stringify(r))) !==
-    sorted(b.rules.map((r) => JSON.stringify(r)))
+    sorted(b.rules.map((r) => JSON.stringify(r))) &&
+    !(attempted === "routing" && isSubdomainPlan(after) &&
+      a.rules.every(r => b.rules.some(x => JSON.stringify(x) === JSON.stringify(r))) &&
+      b.rules.every(r => a.rules.some(x => JSON.stringify(x) === JSON.stringify(r)) ||
+        (r.name?.startsWith("UnfoldMail " + after.identity + ": ") &&
+         (after.recipients || []).some(email => recipientRule(r, email, after.target.workerName)))))
   )
     fail();
   if (
     JSON.stringify(a.catchAll) !== JSON.stringify(b.catchAll) &&
-    !(attempted === "routing" && sameRule(b.catchAll, after.target.workerName))
+    !(attempted === "routing" && !isSubdomainPlan(after) && sameRule(b.catchAll, after.target.workerName))
   )
     fail();
   const domainKey = (d: DomainRow) =>
@@ -612,7 +679,7 @@ export async function performSetupStep(
     }
     case "receiving":
       if (
-        (await cf.get<{ enabled: boolean }>(zone + "/email/routing")).enabled &&
+        (isSubdomainPlan(plan) || (await cf.get<{ enabled: boolean }>(zone + "/email/routing")).enabled) &&
         hasRecords(
           plan.snapshot.records,
           await expectedDNS(cf, plan, "receiving"),
@@ -625,6 +692,7 @@ export async function performSetupStep(
       });
       break;
     case "routing":
+      if (isSubdomainPlan(plan)) return provisionRecipientRules(cf, plan);
       if (sameRule(plan.snapshot.catchAll, plan.target.workerName)) break;
       await cf.request(zone + "/email/routing/rules/catch_all", "PUT", {
         enabled: true,
@@ -657,14 +725,15 @@ export async function performSetupStep(
       const sending = await cf.list<{ name: string; enabled: boolean }>(
         zone + "/email/sending/subdomains",
       );
-      const receiving = await cf.get<{ enabled: boolean }>(
-        zone + "/email/routing",
-      );
-      const rule = await cf.get<Rule>(zone + "/email/routing/rules/catch_all");
+      const subdomain = isSubdomainPlan(plan);
+      const receiving = subdomain ? {enabled: true} : await cf.get<{ enabled: boolean }>(zone + "/email/routing");
+      const routingReady = subdomain
+        ? (plan.recipients || []).every(email => plan.snapshot.rules.some(r => recipientRule(r, email, plan.target.workerName)))
+        : sameRule(await cf.get<Rule>(zone + "/email/routing/rules/catch_all"), plan.target.workerName);
       if (
         !sending.some((s) => s.name === plan.domain && s.enabled) ||
         !receiving.enabled ||
-        !sameRule(rule, plan.target.workerName)
+        !routingReady
       )
         throw new SetupError(
           "Cloudflare configuration is still pending. Wait and retry verification.",
