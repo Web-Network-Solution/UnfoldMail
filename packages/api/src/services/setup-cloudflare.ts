@@ -299,6 +299,9 @@ export async function inspectSetup(
   } catch (e) {
     if (!(e instanceof SetupError && e.status === 404)) throw e;
   }
+  // Cloudflare can include the zone catch-all in the general rule list.
+  // It is handled separately through /catch_all, never as a mailbox rule.
+  rules = rules.filter(r => !isListedCatchAll(r, catchAll));
   const domains = await cf.list<DomainRow>(
     "/accounts/" + accountId + "/workers/domains",
   );
@@ -425,6 +428,16 @@ export async function inspectSetup(
       }),
     ),
   };
+}
+export function isListedCatchAll(rule: Rule, catchAll: Rule): boolean {
+  const all = (r: Rule) => r.matchers?.length === 1 && r.matchers[0].type === "all";
+  if (!all(rule) || !all(catchAll)) return false;
+  const a = rule.id || rule.tag;
+  const b = catchAll.id || catchAll.tag;
+  if (a && b) return a === b;
+  // Older responses omit the catch-all ID; require matching delivery semantics.
+  return rule.enabled === catchAll.enabled &&
+    JSON.stringify(rule.actions) === JSON.stringify(catchAll.actions);
 }
 export function migrationAddress(rule: Rule, domain: string): string | undefined {
   if (rule.matchers?.length !== 1) return;

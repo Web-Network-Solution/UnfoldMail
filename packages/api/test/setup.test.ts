@@ -20,6 +20,7 @@ import {
   matchingZones,
   expectedDNS,
   routingAddresses,
+  isListedCatchAll,
 } from "../src/services/setup-cloudflare";
 import { broker, type BrokerEnv } from "../src/setup-service";
 import type { Env, HonoVariables } from "../src/types";
@@ -1034,6 +1035,43 @@ describe("explicit mail migration", () => {
     await f.call("/apply","POST",{planId:f.p.id,confirmDomain:"example.com"});
     records = records.filter(r=>r.type!=="A");
     expect((await f.call("/apply","POST",{planId:f.p.id,confirmDomain:"example.com"})).status).toBe(409);
+    f.sqlite.close();
+  });
+});
+
+
+describe("catch-all listed alongside mailbox rules", () => {
+  const all = {id:"a".repeat(32), enabled:true, matchers:[{type:"all"}], actions:[{type:"forward",value:["owner@external.com"]}]};
+  it("recognizes duplicate catch-all without hiding a different all-address rule", () => {
+    expect(isListedCatchAll(all, all)).toBe(true);
+    expect(isListedCatchAll({...all,id:"b".repeat(32)},all)).toBe(false);
+    expect(isListedCatchAll({...all,id:undefined},all)).toBe(true);
+    expect(isListedCatchAll({...all,id:undefined,actions:[{type:"drop"}]},all)).toBe(false);
+    expect(isListedCatchAll({...all,matchers:[{type:"literal",field:"to",value:"a@example.com"}]},all)).toBe(false);
+  });
+  for (const domain of ["example.com", "mail.example.com"]) {
+    it("handles the listed catch-all separately for " + domain, async () => {
+      const f = fixture();
+      mailDomain = domain;
+      identity = await setupIdentity(f.env);
+      rule = all;
+      addressRules = [all];
+      const target = {zoneId,workerName:"unfoldmail",webHostname:"",migration:"discard" as const};
+      const plan = await inspectSetup(new CloudflareSetup(token),target,domain,identity);
+      expect(plan.blockers).toEqual([]);
+      expect(plan.snapshot.rules).toEqual([]);
+      expect(plan.snapshot.catchAll).toEqual(all);
+      await performSetupStep(new CloudflareSetup(token),plan,"routing");
+      expect(writes.some(w=>w.endsWith("/catch_all"))).toBe(domain === "example.com");
+      f.sqlite.close();
+    });
+  }
+  it("keeps ambiguous rules blocked", async () => {
+    const f = fixture(); identity = await setupIdentity(f.env);
+    rule = all; addressRules = [all,{...all,id:"b".repeat(32)}];
+    const plan = await inspectSetup(new CloudflareSetup(token),{zoneId,workerName:"unfoldmail",webHostname:"",migration:"import"},mailDomain,identity);
+    expect(plan.blockers.join()).toContain("wildcard");
+    expect(writes).toEqual([]);
     f.sqlite.close();
   });
 });
