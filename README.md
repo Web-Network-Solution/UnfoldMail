@@ -93,7 +93,7 @@ UnfoldMail creates a literal routing rule for each existing mailbox during setup
 (or enables an existing disabled rule for that exact address and points it to the selected Worker)
 and provisions new mailbox rules through its every-minute scheduled job (up to
 20 rules per run). Keep an API token connected with Email Routing Rules Edit and
-Zone Read permissions; an expired OAuth credential must be reconnected. Check
+Zone Edit permissions; an expired OAuth credential must be reconnected. Check
 **Email setup** for the last routing status before using a new mailbox. Deleted
 mailbox rules are retained in Cloudflare; remove unused rules there to reclaim
 capacity. They do not restore deleted UnfoldMail users or their mail.
@@ -116,7 +116,7 @@ These settings serve different purposes:
 
 | Setting | Example | Result |
 | --- | --- | --- |
-| `EMAIL_DOMAIN` | `example.com` | Employee address: `vishal@example.com` |
+| `EMAIL_DOMAIN` | `example.com` | Employee address: `employee@example.com` |
 | Webmail hostname | `email.example.com` | Website for reading mail: `https://email.example.com` |
 | `APP_URL` | `https://email.example.com` | Canonical website origin used by the application |
 
@@ -142,18 +142,21 @@ Use these permissions, limited to the account and zone hosting this installation
 
 | Scope | Permission | Access |
 | --- | --- | --- |
-| Zone | Zone | Read |
-| Zone | DNS | Read for initial setup; **Edit for migration** |
+| Zone | Zone | Edit |
+| Zone | DNS | Edit |
 | Zone | Zone Settings | Edit |
 | Zone | Email Routing Rules | Edit |
 | Account | Email Sending | Edit |
 | Account | Workers Scripts | Edit |
 
-Use the corresponding Read permission if Cloudflare lists it separately.
-**DNS Read cannot replace conflicting mail DNS records.** Save permission changes
-on the existing token, then resume setup; replacing the token value is unnecessary
-when only its permissions changed. The
-wizard does not require full account access. Removing the stored credential does
+Select **Edit for all six permissions when creating the token**, for both initial
+setup and migration. Edit includes read/list access, so separate Read entries are
+not needed. This avoids changing the token permissions when migrating later.
+Set **Account Resources → Include → Specific account** to the installation's account
+and **Zone Resources → Include → Specific zone** to its Cloudflare zone. For
+`mail.example.com`, select `example.com`. See [Cloudflare token permissions](https://developers.cloudflare.com/fundamentals/api/get-started/create-token/).
+
+The wizard does not require full account access. Removing the stored credential does
 not undo configuration or revoke a token at Cloudflare; revoke it there separately.
 
 **Connect with Cloudflare** is an optional OAuth method. It remains unavailable
@@ -186,7 +189,7 @@ In **Admin → Email setup**, choose an existing-service option before reviewing
 
 Migration is limited to the installation's email domain. Root-domain migration replaces the catch-all; subdomain migration leaves the parent catch-all unchanged. Exact address rules for other domains and website DNS are preserved. Rules with ambiguous matchers require separate review. Custom addresses not listed in Cloudflare must be created in **Users**; a catch-all cannot enumerate them.
 
-Review the listed addresses and DNS replacements, then type the email domain to confirm. Migration needs **Zone → DNS → Edit** in addition to the normal setup permissions. The original configuration is saved before changes and can be downloaded from the review panel after migration starts. **Discard plan** cancels an unstarted plan; it does not undo changes. A partial migration can be resumed. DNS changes can take time to reach other mail servers.
+Review the listed addresses and DNS replacements, then type the email domain to confirm. The standard token checklist above includes **Zone → DNS → Edit** for migration. The original configuration is saved before changes and can be downloaded from the review panel after migration starts. **Discard plan** cancels an unstarted plan; it does not undo changes. A partial migration can be resumed. DNS changes can take time to reach other mail servers.
 
 Imported accounts have no usable password until an administrator sets one in **Users**. Existing users, passwords, and stored messages are preserved. Forwarding destinations are not imported as users. Old messages held by Gmail, Outlook, or another provider are not available through Cloudflare routing and are not copied by this process.
 
@@ -355,7 +358,7 @@ private email content or credentials.
 
 | Symptom | What to check |
 | --- | --- |
-| Token cannot access `EMAIL_DOMAIN` | Scope Zone Read to the parent zone containing the email domain; for `mail.example.com`, select `example.com`. |
+| Token cannot access `EMAIL_DOMAIN` | Scope Zone Edit to the parent zone containing the email domain; for `mail.example.com`, select `example.com`. |
 | Cloudflare denied an operation | Check account/zone scope and permissions. Migration specifically needs DNS **Edit**, not Read. Sending also needs Email Sending access and account eligibility. |
 | Webmail hostname rejected | Enter an unused hostname such as `email.example.com` in the selected zone, without `https://` or a path, or leave it blank. |
 | Existing mail settings block setup | Select a migration option, review the affected addresses/records, and confirm the domain. Unrelated or ambiguous rules are not blindly overwritten. |

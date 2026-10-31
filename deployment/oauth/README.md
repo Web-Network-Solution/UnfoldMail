@@ -23,7 +23,7 @@ separate from your webmail hostname. Run the commands from the repository root.
    - Grant: `authorization_code`; response: `code`.
    - Authentication: `client_secret_post` (recommended for this server service),
      or `none` with PKCE. S256 PKCE is used in both cases.
-   - Select scopes corresponding to Zone Read, DNS Read, Zone Settings Write,
+   - Select scopes corresponding to Zone Write, DNS Write, Zone Settings Write,
      Email Routing Rules Write, Email Sending Write, and Workers Scripts Write.
      Obtain the actual scope values from Cloudflare's client registration screen
      or `/client/v4/oauth/scopes`; do not invent scope identifiers.

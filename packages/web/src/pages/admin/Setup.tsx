@@ -203,13 +203,20 @@ export default function Setup() {
               and select Create Token → Create Custom Token.
             </li>
             <li>
-              Limit it to the account and Cloudflare zone used by this installation. For mail.example.com, select example.com.
+              Under Account Resources, include only the installation's account. Under Zone Resources, include only its Cloudflare zone. For mail.example.com, select example.com.
             </li>
             <li>
-              Allow Zone Read, DNS Read, Zone Settings Edit, Email Routing Rules
-              Edit, Email Sending Edit, and Workers Scripts Edit. Use the
-              corresponding Read permission where Cloudflare lists it
-              separately.
+              Select Edit for all six permissions from the start:
+              <ul>
+                <li>Zone → Zone → Edit</li>
+                <li>Zone → DNS → Edit</li>
+                <li>Zone → Zone Settings → Edit</li>
+                <li>Zone → Email Routing Rules → Edit</li>
+                <li>Account → Email Sending → Edit</li>
+                <li>Account → Workers Scripts → Edit</li>
+              </ul>
+              This covers initial setup and migration. Edit includes read access;
+              separate Read entries are not needed.
             </li>
             <li>
               Create the token, copy it, and paste it above. An account-wide
@@ -379,7 +386,7 @@ export default function Setup() {
               <option value="discard">Replace routing without importing addresses</option>
             </select>
             <p>Migration replaces mail routing and conflicting mail DNS for {status.domain}. Other domains and website records stay unchanged. Import creates employee accounts from exact routing addresses, including disabled rules. Set their passwords in Users. Message history and old passwords are not imported.</p>
-            <p>Migration requires Zone → DNS → Edit permission on your API token.</p>
+            <p>The token checklist above already includes DNS Edit for migration.</p>
             <button className="btn btn-primary" type="submit">
               Review changes
             </button>

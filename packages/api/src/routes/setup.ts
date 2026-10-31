@@ -93,7 +93,7 @@ async function saveToken(
     !matchingZones(zones, env.EMAIL_DOMAIN).length
   )
     throw new SetupError(
-      "This token cannot access the Cloudflare zone containing EMAIL_DOMAIN. For mail.example.com, grant Zone Read access to example.com.",
+      "This token cannot access the Cloudflare zone containing EMAIL_DOMAIN. For mail.example.com, grant Zone Edit access to example.com.",
     );
   const encrypted = await sealSetup(setupKey(env), token, "cloudflare-token");
   await env.DB.prepare(
