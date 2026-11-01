@@ -5,7 +5,7 @@
  * and reliable background lifecycle handling.
  */
 
-const CACHE_NAME = 'unfoldmail-cache-v3';
+const CACHE_NAME = 'unfoldmail-cache-v4';
 
 function offlineResponse() {
   return new Response('You are offline. Reconnect and refresh to open UnfoldMail.', {
@@ -25,6 +25,7 @@ const PRECACHE_ASSETS = [
   '/manifest.webmanifest',
   '/favicon.ico',
   '/logo.svg',
+  '/brand/unfoldmail-logo.png',
   '/icons/icon.svg',
   '/icons/icon-192.png',
   '/icons/icon-512.png',

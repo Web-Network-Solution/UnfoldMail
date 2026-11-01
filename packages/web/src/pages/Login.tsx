@@ -2,7 +2,7 @@ import ProjectCredit from '../components/ProjectCredit';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../stores';
-import { IconMail } from '../components/Icons';
+
 import { authApi } from '../lib/api';
 import { MIN_PASSWORD_LENGTH } from '@email-service/shared';
 
@@ -122,10 +122,7 @@ export default function Login() {
 
       <div className="login-card">
         <div className="sidebar-logo" style={{ marginBottom: 'var(--space-2)' }}>
-          <div className="logo-icon">
-            <IconMail size={22} />
-          </div>
-          <span>UnfoldMail</span>
+          <img className="brand-wordmark" src="/brand/unfoldmail-logo.png" alt="UnfoldMail" width="2172" height="724" />
         </div>
 
         <p>Grow your team. Keep email costs in your control.</p>

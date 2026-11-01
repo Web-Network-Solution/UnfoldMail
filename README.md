@@ -1,5 +1,7 @@
 # UnfoldMail
 
+<img src="packages/web/public/logo.svg" alt="UnfoldMail logo" width="420" />
+
 **Grow your team. Keep email costs in your control.**
 
 UnfoldMail is an open-source team email application created and maintained by

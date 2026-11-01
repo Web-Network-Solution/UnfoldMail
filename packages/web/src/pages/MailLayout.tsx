@@ -174,9 +174,7 @@ export default function MailLayout() {
       <aside className={`sidebar ${isMobileSidebarOpen ? 'mobile-open' : ''}`}>
         <div className="sidebar-header">
           <div className="sidebar-logo">
-            <div className="logo-icon">
-              <IconMail size={22} />
-            </div>
+            <img className="brand-icon" src="/icons/icon-192.png" alt="" width="36" height="36" />
             <span>UnfoldMail</span>
             <button
               type="button"
