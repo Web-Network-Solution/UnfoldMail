@@ -12,6 +12,8 @@ You pay your infrastructure and optional AI providers for their services.
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/Web-Network-Solution/UnfoldMail)
 
+<a href="https://www.producthunt.com/products/unfoldmail/reviews/new?utm_source=badge-product_review&utm_medium=badge&utm_source=badge-unfoldmail" target="_blank" rel="noopener noreferrer"><img src="https://api.producthunt.com/widgets/embed-image/v1/product_review.svg?product_id=1363605&theme=light" alt="UnfoldMail - Open-source email, deployed in your own Cloudflare account | Product Hunt" width="250" height="54" /></a>
+
 ## Start here
 
 - [Deploy an installation](#deploy-your-own-installation)
